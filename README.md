@@ -8,7 +8,7 @@ The current MVP requires:
 - X sign-in to prove X account ownership.
 - Signup details stored in SQLite for admin review.
 
-The public page is moving toward a checklist instead of a details form. Discord, Telegram, and LinkedIn are optional sign-in integrations planned next; CoinMarketCap is an external follow link only. See [docs/SIGNUP_PLAN.md](docs/SIGNUP_PLAN.md) for the provider plan and account replacement notes.
+The public page is moving toward a checklist instead of a details form. Discord and Telegram are optional sign-in integrations, LinkedIn is planned, and CoinMarketCap is an external follow link only. See [docs/SIGNUP_PLAN.md](docs/SIGNUP_PLAN.md) for the provider plan and account replacement notes.
 
 ## Local Setup
 
@@ -17,7 +17,7 @@ npm install
 Copy-Item .env.example .env
 ```
 
-Edit `.env` with X OAuth credentials, callback URL, and a strong `ADMIN_PASSWORD`.
+Edit `.env` with X OAuth credentials, callback URL, optional Discord/Telegram test credentials, and a strong `ADMIN_PASSWORD`.
 
 Run backend:
 

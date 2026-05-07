@@ -27,6 +27,13 @@ import {
   logoutDiscordSession,
   startDiscordLogin
 } from "../shared/discord-auth.js";
+import {
+  completeTelegramLoginIfPresent,
+  fetchTelegramSession,
+  isTelegramAuthConfigured,
+  logoutTelegramSession,
+  startTelegramLogin
+} from "../shared/telegram-auth.js";
 
 const runtime = {
   config: {},
@@ -44,9 +51,11 @@ const runtime = {
   isVerifyingWallet: false,
   isConnectingX: false,
   isConnectingDiscord: false,
+  isConnectingTelegram: false,
   isSubmitting: false,
   xSession: null,
   discordSession: null,
+  telegramSession: null,
   walletProof: null,
   existingSignup: null,
   conflictMessage: "",
@@ -71,6 +80,9 @@ const els = {
   discordAuthButton: document.getElementById("discordAuthButton"),
   discordDisconnectButton: document.getElementById("discordDisconnectButton"),
   telegramStatusRow: document.getElementById("telegramStatusRow"),
+  telegramStatusText: document.getElementById("telegramStatusText"),
+  telegramAuthButton: document.getElementById("telegramAuthButton"),
+  telegramDisconnectButton: document.getElementById("telegramDisconnectButton"),
   linkedinStatusRow: document.getElementById("linkedinStatusRow"),
   coinMarketCapStatusRow: document.getElementById("coinMarketCapStatusRow"),
   coinMarketCapStatusText: document.getElementById("coinMarketCapStatusText"),
@@ -122,6 +134,10 @@ function hasXSession() {
 
 function hasDiscordSession() {
   return Boolean(runtime.discordSession?.profile?.username);
+}
+
+function hasTelegramSession() {
+  return Boolean(runtime.telegramSession?.profile?.id);
 }
 
 function setConflict(message) {
@@ -226,7 +242,27 @@ function syncOptionalRows() {
   els.discordAuthButton.textContent = runtime.isConnectingDiscord ? "Opening..." : "Sign in";
   els.discordDisconnectButton.hidden = !discordReady;
 
-  els.telegramStatusRow.dataset.ready = "false";
+  const telegramReady = hasTelegramSession();
+  const telegramConfigured = isTelegramAuthConfigured(runtime.config);
+  const telegramProfile = runtime.telegramSession?.profile || null;
+  const telegramMembership = runtime.telegramSession?.membership || null;
+
+  els.telegramStatusRow.dataset.ready = telegramReady ? "true" : "false";
+  if (telegramReady) {
+    const name = telegramProfile.username ? `@${telegramProfile.username}` : telegramProfile.displayName;
+    els.telegramStatusText.textContent = telegramMembership?.isMember
+      ? `${name} connected and group membership confirmed`
+      : `${name} connected; join the group to complete this optional check`;
+  } else if (telegramConfigured) {
+    els.telegramStatusText.textContent = "Join the Liberdus Telegram and connect your account.";
+  } else {
+    els.telegramStatusText.textContent = "Telegram sign-in is not configured.";
+  }
+  els.telegramAuthButton.hidden = telegramReady;
+  els.telegramAuthButton.disabled = runtime.isConnectingTelegram || !telegramConfigured;
+  els.telegramAuthButton.textContent = runtime.isConnectingTelegram ? "Opening..." : "Sign in";
+  els.telegramDisconnectButton.hidden = !telegramReady;
+
   els.linkedinStatusRow.dataset.ready = "false";
   els.coinMarketCapStatusRow.dataset.ready = runtime.coinMarketCapOpened ? "true" : "false";
   if (runtime.coinMarketCapOpened) {
@@ -396,6 +432,10 @@ async function loadPublicBackendConfig() {
       ...(runtime.config.socialLinks || {}),
       ...(publicConfig.socialLinks || {})
     };
+    runtime.config.telegramAuth = {
+      ...(runtime.config.telegramAuth || {}),
+      ...(publicConfig.telegramAuth || {})
+    };
     applySocialLinks();
   } catch {
     // Static config links are still usable if the backend public config is unavailable.
@@ -485,6 +525,31 @@ function bindEvents() {
     }
   });
 
+  els.telegramAuthButton.addEventListener("click", async () => {
+    try {
+      runtime.isConnectingTelegram = true;
+      syncUi();
+      runtime.telegramSession = await startTelegramLogin(runtime.config);
+      showMessage("Telegram account connected.", "success");
+    } catch (error) {
+      reportError(error, "Start Telegram sign-in");
+    } finally {
+      runtime.isConnectingTelegram = false;
+      syncUi();
+    }
+  });
+
+  els.telegramDisconnectButton.addEventListener("click", async () => {
+    try {
+      await logoutTelegramSession(runtime.config);
+      runtime.telegramSession = null;
+      syncUi();
+      showMessage("Telegram account disconnected.");
+    } catch (error) {
+      reportError(error, "Disconnect Telegram");
+    }
+  });
+
   els.submitButton.addEventListener("click", () => {
     submitSignup().catch((error) => reportError(error, "Submit signup"));
   });
@@ -554,6 +619,21 @@ async function init() {
 
   if (!runtime.discordSession) {
     runtime.discordSession = await fetchDiscordSession(runtime.config).catch(() => null);
+  }
+
+  try {
+    const result = await completeTelegramLoginIfPresent(runtime.config);
+    runtime.telegramSession = result.session || runtime.telegramSession;
+    if (result.handled && runtime.telegramSession) {
+      showMessage("Telegram account connected.", "success");
+    }
+  } catch (error) {
+    runtime.telegramSession = null;
+    reportError(error, "Complete Telegram sign-in");
+  }
+
+  if (!runtime.telegramSession) {
+    runtime.telegramSession = await fetchTelegramSession(runtime.config).catch(() => null);
   }
 
   await syncWalletState(runtime).catch(() => null);

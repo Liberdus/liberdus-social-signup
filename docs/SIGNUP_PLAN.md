@@ -145,18 +145,19 @@ Recommended approach:
 
 ### Telegram
 
-Feasible, with bot constraints. Telegram should be optional until the bot and group/channel permissions are confirmed.
+Feasible, with bot constraints. Telegram remains optional, but the local test setup now uses the Telegram Login Widget plus a bot-backed group membership check.
 
 - Telegram Login or the Telegram Login Widget can authenticate a Telegram user and requires a Telegram bot: https://core.telegram.org/bots/telegram-login and https://core.telegram.org/widgets/login
 - To verify group/channel membership, the backend can use Bot API membership lookups such as `getChatMember`, but the bot must have sufficient access to the group/channel.
 
 Recommended approach:
 
-- Add Telegram Login as optional. Prefer the newer OIDC-style Telegram Login flow if it works cleanly with the static frontend and backend callback model; otherwise use the signed Login Widget payload.
+- Add Telegram Login as optional using the signed Login Widget payload for the current local/static frontend flow.
 - Store Telegram user ID, username, display name, and profile image if provided.
 - Use the bot token server-side to check membership in the configured Liberdus group/channel.
 - Confirm bot permissions during setup before making Telegram membership required.
 - The Liberdus bot must be in the target group/channel. Admin rights are preferred because Telegram only guarantees reliable `getChatMember` checks for other users when the bot is an administrator.
+- Local test values are configured with `TELEGRAM_BOT_USERNAME`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and `TELEGRAM_INVITE_URL`.
 
 ### LinkedIn
 

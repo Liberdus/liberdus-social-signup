@@ -5,6 +5,12 @@
     "backendUrl": "http://127.0.0.1:8788",
     "redirectUri": ""
   },
+  "telegramAuth": {
+    "enabled": false,
+    "botUsername": "",
+    "botId": "",
+    "membershipConfigured": false
+  },
   "socialLinks": {
     "x": "https://x.com/liberdus",
     "telegram": "https://t.me/LiberdusOfficial",

@@ -35,6 +35,13 @@ http.createServer((request, response) => {
 
   fs.readFile(filePath, (error, data) => {
     if (error) {
+      if (error.code === "ENOENT" && filePath === path.join(root, "frontend", "config.local.json")) {
+        response.writeHead(204, {
+          "Cache-Control": "no-store"
+        });
+        response.end();
+        return;
+      }
       response.writeHead(404);
       response.end("Not found");
       return;

@@ -21,7 +21,7 @@ export async function loadUiConfig() {
   if (isLocalhost()) {
     try {
       const localResponse = await fetch(new URL("./config.local.json", UI_ROOT), { cache: "no-store" });
-      if (localResponse.ok) {
+      if (localResponse.ok && localResponse.status !== 204) {
         loaded = await localResponse.json();
         source = "config.local.json";
       }

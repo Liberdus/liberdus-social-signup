@@ -21,10 +21,12 @@ const DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize";
 const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token";
 const DISCORD_CURRENT_USER_URL = "https://discord.com/api/users/@me";
 const DISCORD_CURRENT_USER_GUILD_MEMBER_URL_PREFIX = "https://discord.com/api/users/@me/guilds";
+const TELEGRAM_BOT_API_BASE_URL = "https://api.telegram.org";
 const AUTH_SESSION_COOKIE_NAME = "liberdus_signup_x_session";
 const AUTH_INIT_COOKIE_NAME = "liberdus_signup_x_oauth_init";
 const DISCORD_SESSION_COOKIE_NAME = "liberdus_signup_discord_session";
 const DISCORD_INIT_COOKIE_NAME = "liberdus_signup_discord_oauth_init";
+const TELEGRAM_SESSION_COOKIE_NAME = "liberdus_signup_telegram_session";
 const SIGNUP_BROWSER_COOKIE_NAME = "liberdus_signup_browser_session";
 const AUTH_COMPLETE_QUERY_PARAM = "x_auth";
 const AUTH_COMPLETE_QUERY_VALUE = "complete";
@@ -32,9 +34,14 @@ const AUTH_ERROR_QUERY_PARAM = "x_error";
 const DISCORD_COMPLETE_QUERY_PARAM = "discord_auth";
 const DISCORD_COMPLETE_QUERY_VALUE = "complete";
 const DISCORD_ERROR_QUERY_PARAM = "discord_error";
+const TELEGRAM_COMPLETE_QUERY_PARAM = "telegram_auth";
+const TELEGRAM_COMPLETE_QUERY_VALUE = "complete";
+const TELEGRAM_ERROR_QUERY_PARAM = "telegram_error";
 const AUTH_SESSION_TTL_MS = 30 * 60 * 1000;
 const DISCORD_SESSION_TTL_MS = 30 * 60 * 1000;
 const DISCORD_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const TELEGRAM_SESSION_TTL_MS = 30 * 60 * 1000;
+const TELEGRAM_LOGIN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const SIGNUP_BROWSER_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const REQUEST_TOKEN_TTL_MS = 10 * 60 * 1000;
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
@@ -44,6 +51,7 @@ const MAX_JSON_BODY_BYTES = 64 * 1024;
 const authSessions = new Map();
 const discordSessions = new Map();
 const discordOauthStates = new Map();
+const telegramSessions = new Map();
 const signupBrowserSessions = new Map();
 const requestTokens = new Map();
 const signupChallenges = new Map();
@@ -103,6 +111,26 @@ function getDiscordGuildId() {
 
 function getDiscordInviteUrl() {
   return String(process.env.DISCORD_INVITE_URL || "").trim();
+}
+
+function getTelegramBotUsername() {
+  return String(process.env.TELEGRAM_BOT_USERNAME || "").trim().replace(/^@/u, "");
+}
+
+function getTelegramBotToken() {
+  return String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+}
+
+function getTelegramBotId() {
+  return getTelegramBotToken().match(/^(\d+):/u)?.[1] || "";
+}
+
+function getTelegramChatId() {
+  return String(process.env.TELEGRAM_CHAT_ID || "").trim();
+}
+
+function getTelegramInviteUrl() {
+  return String(process.env.TELEGRAM_INVITE_URL || "").trim();
 }
 
 function getAllowedOrigins() {
@@ -458,6 +486,107 @@ async function fetchDiscordMembership(accessToken) {
   };
 }
 
+function getTelegramLoginPayload(source) {
+  const payload = {};
+  for (const key of ["id", "first_name", "last_name", "username", "photo_url", "auth_date", "hash"]) {
+    const value = source?.get ? source.get(key) : source?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      payload[key] = String(value).trim();
+    }
+  }
+  return payload;
+}
+
+function verifyTelegramLoginPayload(payload) {
+  const botToken = getTelegramBotToken();
+  if (!getTelegramBotUsername() || !botToken) {
+    throw new HttpError(500, "Missing Telegram bot username or token in .env.", { expose: false });
+  }
+  if (!payload?.id || !payload?.auth_date || !payload?.hash) {
+    throw new HttpError(400, "Telegram sign-in response is incomplete.");
+  }
+
+  const authDateMs = Number(payload.auth_date) * 1000;
+  if (!Number.isFinite(authDateMs) || authDateMs <= 0) {
+    throw new HttpError(400, "Telegram sign-in timestamp is invalid.");
+  }
+  if (Date.now() - authDateMs > TELEGRAM_LOGIN_MAX_AGE_MS || authDateMs - Date.now() > 5 * 60 * 1000) {
+    throw new HttpError(400, "Telegram sign-in response expired. Try again.");
+  }
+
+  const dataCheckString = Object.entries(payload)
+    .filter(([key]) => key !== "hash")
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+  const secretKey = crypto.createHash("sha256").update(botToken).digest();
+  const expectedHash = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+  if (!secureEquals(expectedHash, payload.hash)) {
+    throw new HttpError(400, "Telegram sign-in response could not be verified.");
+  }
+}
+
+function normalizeTelegramProfile(payload) {
+  const firstName = String(payload.first_name || "").trim();
+  const lastName = String(payload.last_name || "").trim();
+  const username = String(payload.username || "").trim();
+  return {
+    id: String(payload.id || "").trim(),
+    username,
+    firstName,
+    lastName,
+    displayName: [firstName, lastName].filter(Boolean).join(" ") || username || String(payload.id || "").trim(),
+    photoUrl: String(payload.photo_url || "").trim()
+  };
+}
+
+async function fetchTelegramBotApi(method, params = {}) {
+  const botToken = getTelegramBotToken();
+  if (!botToken) {
+    throw new HttpError(500, "Missing Telegram bot token in .env.", { expose: false });
+  }
+  const url = new URL(`${TELEGRAM_BOT_API_BASE_URL}/bot${botToken}/${method}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && String(value) !== "") {
+      url.searchParams.set(key, String(value));
+    }
+  }
+  const response = await fetch(url);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) {
+    const description = String(payload.description || "").trim();
+    const notMember = /user not found|participant_id_invalid|member not found/iu.test(description);
+    if (method === "getChatMember" && response.status === 400 && notMember) {
+      return null;
+    }
+    console.error(`[Telegram ${method}] HTTP ${response.status}: ${JSON.stringify(payload)}`);
+    throw new HttpError(502, "Telegram membership lookup failed.", { expose: false });
+  }
+  return payload.result;
+}
+
+async function fetchTelegramMembership(userId) {
+  const chatId = getTelegramChatId();
+  if (!chatId) {
+    return { configured: false, isMember: false, chatId: "", status: "", checkedAt: null };
+  }
+  const checkedAt = new Date().toISOString();
+  const member = await fetchTelegramBotApi("getChatMember", {
+    chat_id: chatId,
+    user_id: userId
+  });
+  const status = String(member?.status || "").trim();
+  const isMember = ["creator", "administrator", "member"].includes(status)
+    || (status === "restricted" && member?.is_member === true);
+  return {
+    configured: true,
+    isMember,
+    chatId,
+    status,
+    checkedAt
+  };
+}
+
 function pruneExpiredState() {
   const now = Date.now();
   for (const [key, session] of authSessions.entries()) {
@@ -468,6 +597,9 @@ function pruneExpiredState() {
   }
   for (const [key, pending] of discordOauthStates.entries()) {
     if (pending.expiresAtMs <= now) discordOauthStates.delete(key);
+  }
+  for (const [key, session] of telegramSessions.entries()) {
+    if (session.expiresAtMs <= now) telegramSessions.delete(key);
   }
   for (const [key, session] of signupBrowserSessions.entries()) {
     if (session.expiresAtMs <= now) signupBrowserSessions.delete(key);
@@ -530,6 +662,16 @@ function serializeDiscordSession(session) {
   };
 }
 
+function serializeTelegramSession(session) {
+  if (!session) return null;
+  return {
+    profile: session.profile,
+    membership: session.membership,
+    authenticatedAt: session.authenticatedAt,
+    expiresAt: session.expiresAtMs
+  };
+}
+
 function getRequiredSessionFromCookie(request) {
   pruneExpiredState();
   const sessionId = parseCookies(request)[AUTH_SESSION_COOKIE_NAME];
@@ -542,6 +684,12 @@ function getDiscordSessionFromCookie(request) {
   pruneExpiredState();
   const sessionId = parseCookies(request)[DISCORD_SESSION_COOKIE_NAME];
   return sessionId ? discordSessions.get(sessionId) || null : null;
+}
+
+function getTelegramSessionFromCookie(request) {
+  pruneExpiredState();
+  const sessionId = parseCookies(request)[TELEGRAM_SESSION_COOKIE_NAME];
+  return sessionId ? telegramSessions.get(sessionId) || null : null;
 }
 
 function getOptionalSessionFromCookie(request) {
@@ -827,9 +975,15 @@ async function handleDiscordCallback(request, response, requestUrl) {
   redirect(response, url.toString());
 }
 
-async function handleDiscordSessionLookup(request, response) {
+async function handleDiscordSessionLookup(request, response, requestUrl) {
   const session = getDiscordSessionFromCookie(request);
-  if (!session) throw new HttpError(401, "Sign in with Discord first.");
+  if (!session) {
+    if (requestUrl.searchParams.get("optional") === "1") {
+      writeJson(response, 200, { session: null });
+      return;
+    }
+    throw new HttpError(401, "Sign in with Discord first.");
+  }
   writeJson(response, 200, serializeDiscordSession(session));
 }
 
@@ -837,6 +991,80 @@ async function handleDiscordLogout(request, response) {
   const sessionId = parseCookies(request)[DISCORD_SESSION_COOKIE_NAME];
   if (sessionId) discordSessions.delete(sessionId);
   clearCookie(response, DISCORD_SESSION_COOKIE_NAME, {
+    path: "/api/",
+    sameSite: "Lax",
+    secure: shouldUseSecureCookies()
+  });
+  writeJson(response, 200, { ok: true });
+}
+
+async function handleTelegramCallback(request, response, requestUrl) {
+  const returnUri = validateReturnUri(requestUrl.searchParams.get("return_uri"));
+  const loginPayload = getTelegramLoginPayload(requestUrl.searchParams);
+
+  try {
+    await createTelegramSession(response, loginPayload);
+
+    const url = new URL(returnUri);
+    url.searchParams.set(TELEGRAM_COMPLETE_QUERY_PARAM, TELEGRAM_COMPLETE_QUERY_VALUE);
+    redirect(response, url.toString());
+  } catch (error) {
+    const url = new URL(returnUri);
+    url.searchParams.set(TELEGRAM_ERROR_QUERY_PARAM, getPublicErrorMessage(error, "Telegram sign-in failed."));
+    redirect(response, url.toString());
+  }
+}
+
+async function createTelegramSession(response, loginPayload) {
+  verifyTelegramLoginPayload(loginPayload);
+  const profile = normalizeTelegramProfile(loginPayload);
+  if (!profile.id) {
+    throw new HttpError(400, "Telegram did not return a usable profile.");
+  }
+
+  const membership = await fetchTelegramMembership(profile.id);
+  const sessionId = createRandomToken();
+  const now = new Date().toISOString();
+  const session = {
+    sessionId,
+    profile,
+    membership,
+    authenticatedAt: now,
+    expiresAtMs: Date.now() + TELEGRAM_SESSION_TTL_MS
+  };
+  telegramSessions.set(sessionId, session);
+  setCookie(response, TELEGRAM_SESSION_COOKIE_NAME, sessionId, {
+    path: "/api/",
+    maxAge: TELEGRAM_SESSION_TTL_MS / 1000,
+    httpOnly: true,
+    sameSite: "Lax",
+    secure: shouldUseSecureCookies()
+  });
+  return session;
+}
+
+async function handleTelegramVerify(request, response) {
+  const body = await readJsonRequest(request);
+  const session = await createTelegramSession(response, getTelegramLoginPayload(body));
+  writeJson(response, 200, serializeTelegramSession(session));
+}
+
+async function handleTelegramSessionLookup(request, response, requestUrl) {
+  const session = getTelegramSessionFromCookie(request);
+  if (!session) {
+    if (requestUrl.searchParams.get("optional") === "1") {
+      writeJson(response, 200, { session: null });
+      return;
+    }
+    throw new HttpError(401, "Sign in with Telegram first.");
+  }
+  writeJson(response, 200, serializeTelegramSession(session));
+}
+
+async function handleTelegramLogout(request, response) {
+  const sessionId = parseCookies(request)[TELEGRAM_SESSION_COOKIE_NAME];
+  if (sessionId) telegramSessions.delete(sessionId);
+  clearCookie(response, TELEGRAM_SESSION_COOKIE_NAME, {
     path: "/api/",
     sameSite: "Lax",
     secure: shouldUseSecureCookies()
@@ -936,6 +1164,7 @@ async function handleSignupComplete(request, response) {
   const session = getRequiredSessionFromCookie(request);
   requireCsrf(request, session);
   const discordSession = getDiscordSessionFromCookie(request);
+  const telegramSession = getTelegramSessionFromCookie(request);
   const browserSession = getSignupBrowserSession(request, response);
   const body = await readJsonRequest(request);
   let walletProof = browserSession.walletProof;
@@ -988,7 +1217,16 @@ async function handleSignupComplete(request, response) {
       guildId: discordSession?.membership?.guildId || "",
       membershipCheckedAt: discordSession?.membership?.checkedAt || null
     },
-    telegram: { connected: false, verified: false },
+    telegram: {
+      connected: Boolean(telegramSession),
+      verified: Boolean(telegramSession?.membership?.isMember),
+      userId: telegramSession?.profile?.id || "",
+      username: telegramSession?.profile?.username || "",
+      displayName: telegramSession?.profile?.displayName || "",
+      chatId: telegramSession?.membership?.chatId || "",
+      status: telegramSession?.membership?.status || "",
+      membershipCheckedAt: telegramSession?.membership?.checkedAt || null
+    },
     linkedin: { connected: false, verified: false },
     coinMarketCap: { opened: Boolean(body.coinMarketCapOpened), verified: false }
   };
@@ -1009,7 +1247,7 @@ async function handleSignupComplete(request, response) {
       country: "",
       interest: "",
       discordUsername: discordSession?.profile?.legacyTag || discordSession?.profile?.username || "",
-      telegramUsername: "",
+      telegramUsername: telegramSession?.profile?.username || telegramSession?.profile?.displayName || "",
       linkedinUrl: "",
       notes: "",
       verificationJson: JSON.stringify(verification),
@@ -1143,7 +1381,9 @@ const server = http.createServer(async (request, response) => {
         allowedOrigins: getAllowedOrigins(),
         allowedReturnUrls: getAllowedReturnUrls(),
         discordApiConfigured: Boolean(getDiscordClientId() && getDiscordClientSecret() && getDiscordCallbackUrl()),
-        discordGuildConfigured: Boolean(getDiscordGuildId())
+        discordGuildConfigured: Boolean(getDiscordGuildId()),
+        telegramBotConfigured: Boolean(getTelegramBotUsername() && getTelegramBotToken()),
+        telegramChatConfigured: Boolean(getTelegramChatId())
       });
       return;
     }
@@ -1152,8 +1392,15 @@ const server = http.createServer(async (request, response) => {
       requireAllowedOrigin(request, response);
       const socialLinks = {};
       if (getDiscordInviteUrl()) socialLinks.discord = getDiscordInviteUrl();
+      if (getTelegramInviteUrl()) socialLinks.telegram = getTelegramInviteUrl();
       writeJson(response, 200, {
-        socialLinks
+        socialLinks,
+        telegramAuth: {
+          enabled: Boolean(getTelegramBotUsername() && getTelegramBotToken()),
+          botUsername: getTelegramBotUsername(),
+          botId: getTelegramBotId(),
+          membershipConfigured: Boolean(getTelegramChatId())
+        }
       });
       return;
     }
@@ -1192,13 +1439,36 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "GET" && pathname === "/api/discord/session") {
       requireAllowedOrigin(request, response);
-      await handleDiscordSessionLookup(request, response);
+      await handleDiscordSessionLookup(request, response, requestUrl);
       return;
     }
 
     if (request.method === "POST" && pathname === "/api/discord/logout") {
       requireAllowedOrigin(request, response);
       await handleDiscordLogout(request, response);
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/api/telegram/callback") {
+      await handleTelegramCallback(request, response, requestUrl);
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/telegram/verify") {
+      requireAllowedOrigin(request, response);
+      await handleTelegramVerify(request, response);
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/api/telegram/session") {
+      requireAllowedOrigin(request, response);
+      await handleTelegramSessionLookup(request, response, requestUrl);
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/telegram/logout") {
+      requireAllowedOrigin(request, response);
+      await handleTelegramLogout(request, response);
       return;
     }
 
@@ -1257,6 +1527,7 @@ server.listen(PORT, HOST, () => {
   console.log(`Allowed return URLs: ${getAllowedReturnUrls().join(", ")}`);
   console.log(`X API configured: ${getApiKey() && getApiSecret() ? "yes" : "no"}`);
   console.log(`X callback URL: ${getCallbackUrl() || "(missing)"}`);
+  console.log(`Telegram bot configured: ${getTelegramBotUsername() && getTelegramBotToken() ? "yes" : "no"}`);
   console.log(`Secure cookies: ${shouldUseSecureCookies() ? "yes" : "no"}`);
   console.log(`Signup count: ${signupStore.getStats().signupCount}`);
 });

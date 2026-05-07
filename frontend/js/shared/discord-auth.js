@@ -49,11 +49,15 @@ export async function fetchDiscordSession(config = {}, { required = false } = {}
   const backendUrl = getBackendUrl(config);
   if (!backendUrl) return null;
 
-  const response = await fetch(`${backendUrl}/api/discord/session`, {
+  const sessionUrl = new URL(`${backendUrl}/api/discord/session`);
+  if (!required) sessionUrl.searchParams.set("optional", "1");
+
+  const response = await fetch(sessionUrl.toString(), {
     credentials: "include",
     cache: "no-store",
   });
   const payload = await parseJsonResponse(response);
+  if (!required && payload?.session === null) return null;
   if (response.status === 401 && !required) return null;
   if (!response.ok) throw new Error(`Discord sign-in failed: ${describeErrorPayload(payload)}`);
   return payload;
