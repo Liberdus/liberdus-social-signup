@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Liberdus Social Rewards Signup</title>
+    <meta name="description" content="Sign up for Liberdus social rewards with wallet ownership and X account verification.">
+    <meta name="theme-color" content="#071542">
+    <link rel="icon" type="image/png" href="./assets/liberdus-logo.png">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Liberdus">
+    <meta property="og:title" content="Liberdus Social Rewards Signup">
+    <meta property="og:description" content="Verify your wallet and X account for future Liberdus rewards.">
+    <meta property="og:image" content="./assets/signup-social-card.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="page-circuit page-circuit-left" aria-hidden="true"></div>
+    <div class="page-circuit page-circuit-right" aria-hidden="true"></div>
+
+    <div class="toast-stack" aria-live="polite" aria-atomic="true">
+      <div id="signupToast" class="toast" data-tone="info" hidden>
+        <p id="signupToastMessage" class="toast-message"></p>
+        <button id="signupToastClose" type="button" class="toast-close" aria-label="Dismiss notification">x</button>
+      </div>
+    </div>
+
+    <header class="page-header">
+      <div class="page-header-inner">
+        <a class="brand-lockup nav-brand" href="./">
+          <img class="brand-logo" src="./assets/liberdus-logo.png" alt="" aria-hidden="true">
+          <span>
+            <span class="eyebrow">Liberdus</span>
+            <span class="brand-wordmark">Social Rewards</span>
+          </span>
+        </a>
+      </div>
+    </header>
+
+    <main class="shell signup-shell">
+      <section class="frame signup-card">
+        <div class="panel-title-row">
+          <div>
+            <p class="eyebrow">Rewards signup</p>
+            <h2>Account Checklist</h2>
+            <p class="hint">Complete the required checks, then add any optional social accounts you want included.</p>
+          </div>
+          <p id="submissionStatus" class="status-chip" data-tone="neutral">Draft</p>
+        </div>
+
+        <div id="existingSignupPanel" class="existing-signup-panel" hidden>
+          <strong>Existing signup loaded</strong>
+          <p id="existingSignupText">This browser has loaded a previous signup.</p>
+        </div>
+
+        <div class="signup-checklist">
+          <article class="checklist-item" id="walletStatusRow" data-required="true">
+            <span class="status-dot" aria-hidden="true"></span>
+            <div class="checklist-copy">
+              <div class="checklist-title-row">
+                <h3>Wallet ownership</h3>
+                <span class="required-pill">Required</span>
+              </div>
+              <p id="walletStatusText">Not connected</p>
+            </div>
+            <div class="checklist-actions wallet-menu-shell">
+              <button id="connectButton" type="button" class="wallet-trigger" aria-haspopup="menu" aria-expanded="false">Connect Wallet</button>
+              <div id="walletMenu" class="wallet-popout" role="menu" hidden>
+                <p class="wallet-popout-label">Connected wallet</p>
+                <div class="wallet-popout-row">
+                  <p id="walletMenuAddress" class="wallet-popout-address">-</p>
+                  <button id="copyWalletAddressButton" type="button" class="ghost wallet-copy-button">Copy</button>
+                </div>
+                <div class="wallet-popout-meta">
+                  <p><span>Network</span><strong id="walletMenuChainId">-</strong></p>
+                </div>
+                <button id="disconnectButton" type="button" class="ghost wallet-disconnect-button">Disconnect</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="checklist-item" id="xStatusRow" data-required="true">
+            <span class="status-dot" aria-hidden="true"></span>
+            <div class="checklist-copy">
+              <div class="checklist-title-row">
+                <h3>X account</h3>
+                <span class="required-pill">Required</span>
+              </div>
+              <p id="xStatusText">Not signed in</p>
+            </div>
+            <div class="checklist-actions button-row">
+              <a id="xChecklistLink" class="secondary nav-button checklist-link" href="https://x.com/liberdus" target="_blank" rel="noreferrer noopener">Follow</a>
+              <button id="xAuthButton" type="button" class="secondary">Sign in with X</button>
+              <button id="xDisconnectButton" type="button" class="ghost" hidden>Sign out</button>
+            </div>
+          </article>
+
+          <article class="checklist-item" id="discordStatusRow">
+            <span class="status-dot" aria-hidden="true"></span>
+            <div class="checklist-copy">
+              <div class="checklist-title-row">
+                <h3>Discord</h3>
+                <span class="optional-pill">Optional</span>
+              </div>
+              <p id="discordStatusText">Join the Liberdus server and connect your Discord account.</p>
+            </div>
+            <div class="checklist-actions button-row">
+              <a id="discordChecklistLink" class="secondary nav-button checklist-link" href="https://liberdus.com/discord" target="_blank" rel="noreferrer noopener">Join</a>
+              <button id="discordAuthButton" type="button" class="secondary">Sign in</button>
+              <button id="discordDisconnectButton" type="button" class="ghost" hidden>Sign out</button>
+            </div>
+          </article>
+
+          <article class="checklist-item" id="telegramStatusRow">
+            <span class="status-dot" aria-hidden="true"></span>
+            <div class="checklist-copy">
+              <div class="checklist-title-row">
+                <h3>Telegram</h3>
+                <span class="optional-pill">Optional</span>
+              </div>
+              <p id="telegramStatusText">Join the Liberdus Telegram and connect your account.</p>
+            </div>
+            <div class="checklist-actions button-row">
+              <a id="telegramChecklistLink" class="secondary nav-button checklist-link" href="https://t.me/LiberdusOfficial" target="_blank" rel="noreferrer noopener">Join</a>
+              <button id="telegramAuthButton" type="button" class="secondary" disabled>Sign in</button>
+            </div>
+          </article>
+
+          <article class="checklist-item" id="linkedinStatusRow">
+            <span class="status-dot" aria-hidden="true"></span>
+            <div class="checklist-copy">
+              <div class="checklist-title-row">
+                <h3>LinkedIn</h3>
+                <span class="optional-pill">Optional</span>
+              </div>
+              <p id="linkedinStatusText">Follow Liberdus on LinkedIn and connect your account.</p>
+            </div>
+            <div class="checklist-actions button-row">
+              <a id="linkedinChecklistLink" class="secondary nav-button checklist-link" href="https://www.linkedin.com/company/liberdus" target="_blank" rel="noreferrer noopener">Follow</a>
+              <button id="linkedinAuthButton" type="button" class="secondary" disabled>Sign in</button>
+            </div>
+          </article>
+
+          <article class="checklist-item" id="coinMarketCapStatusRow">
+            <span class="status-dot" aria-hidden="true"></span>
+            <div class="checklist-copy">
+              <div class="checklist-title-row">
+                <h3>CoinMarketCap</h3>
+                <span class="optional-pill">Optional</span>
+              </div>
+              <p id="coinMarketCapStatusText">Follow Liberdus on CoinMarketCap.</p>
+            </div>
+            <div class="checklist-actions">
+              <a id="coinMarketCapLink" class="secondary nav-button checklist-link" href="https://coinmarketcap.com/community/profile/Liberdus/" target="_blank" rel="noreferrer noopener">Follow</a>
+            </div>
+          </article>
+        </div>
+
+        <div class="checklist-submit-bar">
+          <p id="proofHint" class="hint">Connect wallet and X before submitting.</p>
+          <button id="submitButton" type="button">Submit Signup</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="page-footer">
+      <div class="page-footer-inner">
+        <a class="page-footer-copy" href="https://liberdus.com/" target="_blank" rel="noreferrer noopener">&copy; Liberdus</a>
+        <div class="page-footer-links">
+          <a id="xLink" class="footer-link-anchor" href="https://x.com/liberdus" target="_blank" rel="noreferrer noopener">X</a>
+          <a id="telegramLink" class="footer-link-anchor" href="https://t.me/LiberdusOfficial" target="_blank" rel="noreferrer noopener">Telegram</a>
+          <a id="discordLink" class="footer-link-anchor" href="https://liberdus.com/discord" target="_blank" rel="noreferrer noopener">Discord</a>
+          <a id="linkedinLink" class="footer-link-anchor" href="https://www.linkedin.com/company/liberdus" target="_blank" rel="noreferrer noopener">LinkedIn</a>
+          <a class="footer-link-anchor" href="./admin/">Admin</a>
+        </div>
+      </div>
+    </footer>
+
+    <script type="module" src="./js/pages/signup.js"></script>
+  </body>
+</html>

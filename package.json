@@ -1,0 +1,18 @@
+{
+  "name": "liberus-social-signup",
+  "version": "0.1.0",
+  "description": "Liberdus social rewards signup site with wallet ownership and social account verification.",
+  "private": true,
+  "main": "backend/server.js",
+  "scripts": {
+    "serve": "node backend/server.js",
+    "serve:static": "node scripts/static-server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.9.0",
+    "dotenv": "^17.4.2",
+    "ethers": "^6.15.0"
+  },
+  "devDependencies": {}
+}
+

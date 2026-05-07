@@ -1,0 +1,15 @@
+{
+  "apiBaseUrl": "http://127.0.0.1:8788",
+  "xAuth": {
+    "enabled": true,
+    "backendUrl": "http://127.0.0.1:8788",
+    "redirectUri": "http://127.0.0.1:5503/frontend/"
+  },
+  "socialLinks": {
+    "x": "https://x.com/liberdus",
+    "telegram": "https://t.me/LiberdusOfficial",
+    "discord": "https://liberdus.com/discord",
+    "linkedin": "https://www.linkedin.com/company/liberdus",
+    "coinMarketCap": "https://coinmarketcap.com/community/profile/Liberdus/"
+  }
+}

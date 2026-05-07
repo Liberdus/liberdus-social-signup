@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Liberdus Signup Admin</title>
+    <link rel="icon" type="image/png" href="../assets/liberdus-logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="toast-stack" aria-live="polite" aria-atomic="true">
+      <div id="adminToast" class="toast" data-tone="info" hidden>
+        <p id="adminToastMessage" class="toast-message"></p>
+        <button id="adminToastClose" type="button" class="toast-close" aria-label="Dismiss notification">x</button>
+      </div>
+    </div>
+
+    <header class="page-header">
+      <div class="page-header-inner">
+        <a class="brand-lockup nav-brand" href="../">
+          <img class="brand-logo" src="../assets/liberdus-logo.png" alt="" aria-hidden="true">
+          <span>
+            <span class="eyebrow">Liberdus</span>
+            <span class="brand-wordmark">Signup Admin</span>
+          </span>
+        </a>
+        <div class="claim-topbar-actions">
+          <a class="secondary nav-button" href="../">Signup</a>
+          <button id="logoutButton" type="button" class="ghost" hidden>Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section id="loginPanel" class="frame login-panel">
+        <div class="panel-title-row">
+          <div>
+            <h2>Admin Login</h2>
+            <p class="hint">Use the username and password configured on the backend.</p>
+          </div>
+        </div>
+        <form id="loginForm" class="form-grid" autocomplete="on">
+          <label>
+            <span>Username</span>
+            <input id="usernameInput" name="username" type="text" autocomplete="username">
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="passwordInput" name="password" type="password" autocomplete="current-password">
+          </label>
+          <div class="full-width button-row">
+            <button type="submit">Login</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="adminPanel" class="frame" hidden>
+        <div class="panel-title-row">
+          <div>
+            <h2>Submissions</h2>
+            <p id="summaryText" class="hint">No data loaded.</p>
+          </div>
+          <div class="button-row">
+            <button id="refreshButton" type="button" class="secondary">Refresh</button>
+            <button id="exportButton" type="button" class="ghost">Export CSV</button>
+          </div>
+        </div>
+
+        <form id="filterForm" class="management-filter-form" autocomplete="off">
+          <label class="management-filter-field">
+            <span>Search</span>
+            <input id="searchInput" type="text" placeholder="X username, wallet, email, social">
+          </label>
+          <label class="management-page-size-field">
+            <span>Rows</span>
+            <select id="pageSizeSelect">
+              <option value="25">25</option>
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <div class="button-row">
+            <button type="submit">Apply</button>
+            <button id="clearSearchButton" type="button" class="ghost">Clear</button>
+          </div>
+        </form>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Submitted</th>
+                <th>X</th>
+                <th>Wallet</th>
+                <th>Email</th>
+                <th>Socials</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="submissionsBody">
+              <tr><td colspan="6" class="empty-row">Login to load submissions.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="../js/pages/admin.js"></script>
+  </body>
+</html>
