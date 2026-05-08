@@ -118,8 +118,9 @@ function renderRows(signups) {
     appendCell(row, createText(formatDateTime(signup.submittedAt)));
 
     const xName = document.createElement("strong");
-    xName.textContent = `@${signup.xUsername}`;
-    appendCell(row, xName, createLineBreak(), createCode(signup.xUserId));
+    xName.textContent = signup.xUsername ? `@${signup.xUsername}` : "-";
+    const xChildren = signup.xUserId ? [xName, createLineBreak(), createCode(signup.xUserId)] : [xName];
+    appendCell(row, ...xChildren);
 
     appendCell(row, createCode(formatAddressShort(signup.walletAddress), signup.walletAddress));
     appendCell(row, createText(signup.email || "-"));

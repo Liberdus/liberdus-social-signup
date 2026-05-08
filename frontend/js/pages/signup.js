@@ -111,8 +111,12 @@ function hasVerifiedWallet() {
   return Boolean(runtime.account && getVerifiedWalletAddress() === normalizeAddress(runtime.account));
 }
 
-function hasXSession() {
-  return Boolean(runtime.xSession?.profile?.username && runtime.xSession?.csrfToken);
+function hasRequiredSocialSession() {
+  return Boolean(
+    runtime.telegramSession?.profile?.id
+    || runtime.discordSession?.profile?.id
+    || runtime.linkedinSession?.profile?.id
+  );
 }
 
 function setConflict(message) {
@@ -180,8 +184,8 @@ function renderProviderRows() {
     title.textContent = provider.title;
 
     const optional = document.createElement("span");
-    optional.className = "optional-pill";
-    optional.textContent = "Optional";
+    optional.className = provider.requirementLabel ? "choice-pill" : "optional-pill";
+    optional.textContent = provider.requirementLabel || "Optional";
 
     const statusText = document.createElement("p");
     statusText.id = `${provider.id}StatusText`;
@@ -318,7 +322,7 @@ function syncXUi() {
   const profile = runtime.xSession?.profile || null;
   const signedIn = Boolean(profile?.username);
   els.xStatusRow.dataset.ready = signedIn ? "true" : "false";
-  els.xStatusText.textContent = signedIn ? `@${profile.username}` : configured ? "Not signed in" : "X sign-in is not configured";
+  els.xStatusText.textContent = signedIn ? `@${profile.username}` : configured ? "Optional X sign-in" : "X sign-in is not configured";
   els.xAuthButton.hidden = signedIn;
   els.xAuthButton.disabled = runtime.isConnectingX || !configured;
   els.xAuthButton.textContent = runtime.isConnectingX ? "Opening X..." : "Sign in with X";
@@ -375,8 +379,8 @@ function syncExistingSignupUi() {
 
 function syncSubmitUi() {
   const walletReady = hasVerifiedWallet();
-  const xReady = hasXSession();
-  const ready = walletReady && xReady && !runtime.conflictMessage;
+  const requiredSocialReady = hasRequiredSocialSession();
+  const ready = walletReady && requiredSocialReady && !runtime.conflictMessage;
   els.submitButton.disabled = !ready || runtime.isSubmitting;
   els.submitButton.textContent = runtime.isSubmitting ? "Submitting..." : runtime.existingSignup ? "Save Signup" : "Submit Signup";
 
@@ -392,8 +396,16 @@ function syncSubmitUi() {
     els.proofHint.textContent = "Required checks complete. Submit to save this signup.";
     els.submissionStatus.textContent = "Ready";
     els.submissionStatus.dataset.tone = "ready";
+  } else if (!walletReady) {
+    els.proofHint.textContent = "Verify wallet ownership before submitting.";
+    els.submissionStatus.textContent = "Draft";
+    els.submissionStatus.dataset.tone = "neutral";
+  } else if (!requiredSocialReady) {
+    els.proofHint.textContent = "Connect Telegram, Discord, or LinkedIn before submitting.";
+    els.submissionStatus.textContent = "Draft";
+    els.submissionStatus.dataset.tone = "neutral";
   } else {
-    els.proofHint.textContent = "Connect wallet and X before submitting.";
+    els.proofHint.textContent = "Verify wallet and connect one required social account before submitting.";
     els.submissionStatus.textContent = "Draft";
     els.submissionStatus.dataset.tone = "neutral";
   }
@@ -472,17 +484,20 @@ async function submitSignup() {
   if (!hasVerifiedWallet()) {
     throw new Error("Verify wallet ownership first.");
   }
-  if (!runtime.xSession?.csrfToken) {
-    throw new Error("Sign in with X first.");
+  if (!hasRequiredSocialSession()) {
+    throw new Error("Connect Telegram, Discord, or LinkedIn first.");
   }
 
   runtime.isSubmitting = true;
   syncUi();
 
   try {
+    const headers = runtime.xSession?.csrfToken
+      ? { "X-CSRF-Token": runtime.xSession.csrfToken }
+      : {};
     const result = await apiFetch(runtime.config, "/api/signup/complete", {
       method: "POST",
-      headers: { "X-CSRF-Token": runtime.xSession.csrfToken },
+      headers,
       body: JSON.stringify({
         walletAddress: getVerifiedWalletAddress(),
         coinMarketCapOpened: runtime.coinMarketCapOpened

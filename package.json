@@ -1,5 +1,5 @@
 {
-  "name": "liberus-social-signup",
+  "name": "liberdus-social-signup",
   "version": "0.1.0",
   "description": "Liberdus social rewards signup site with wallet ownership and social account verification.",
   "private": true,
@@ -15,4 +15,3 @@
   },
   "devDependencies": {}
 }
-

@@ -12,6 +12,7 @@ export const discordProvider = {
   sessionKey: "discordSession",
   connectingKey: "isConnectingDiscord",
   configKeys: ["discordAuth"],
+  requirementLabel: "One required",
   footerLink: { label: "Discord", hrefKey: "discord", defaultHref: "https://liberdus.com/discord" },
   links: [
     { label: "Join", hrefKey: "discord", defaultHref: "https://liberdus.com/discord" }

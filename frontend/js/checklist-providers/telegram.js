@@ -12,6 +12,7 @@ export const telegramProvider = {
   sessionKey: "telegramSession",
   connectingKey: "isConnectingTelegram",
   configKeys: ["telegramAuth"],
+  requirementLabel: "One required",
   footerLink: { label: "Telegram", hrefKey: "telegram", defaultHref: "https://t.me/LiberdusOfficial" },
   links: [
     { label: "Join", hrefKey: "telegram", defaultHref: "https://t.me/LiberdusOfficial" }

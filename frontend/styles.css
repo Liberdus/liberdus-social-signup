@@ -346,7 +346,8 @@ h3 { margin-bottom: 8px; font-size: 1.05rem; }
 .checklist-title-row h3 { margin: 0; }
 
 .required-pill,
-.optional-pill {
+.optional-pill,
+.choice-pill {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
@@ -367,6 +368,11 @@ h3 { margin-bottom: 8px; font-size: 1.05rem; }
   color: #dfe6ff;
   border: 1px solid rgba(177, 191, 237, 0.24);
   background: rgba(177, 191, 237, 0.08);
+}
+
+.choice-pill {
+  color: #051622;
+  background: var(--accent);
 }
 
 .checklist-actions {

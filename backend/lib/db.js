@@ -78,8 +78,8 @@ function initializeBaseSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS signups (
       id TEXT PRIMARY KEY,
-      x_user_id TEXT NOT NULL,
-      x_username TEXT NOT NULL,
+      x_user_id TEXT,
+      x_username TEXT,
       x_name TEXT,
       x_profile_image_url TEXT,
       wallet_address TEXT NOT NULL,
@@ -115,6 +115,95 @@ function initializeBaseSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_signups_submitted_at
       ON signups(submitted_at DESC);
   `);
+}
+
+function ensureNullableXSignupColumns(db) {
+  const columns = db.pragma("table_info(signups)");
+  const xUserId = columns.find((column) => column.name === "x_user_id");
+  const xUsername = columns.find((column) => column.name === "x_username");
+  if (!xUserId?.notnull && !xUsername?.notnull) return;
+
+  const columnNames = [
+    "id",
+    "x_user_id",
+    "x_username",
+    "x_name",
+    "x_profile_image_url",
+    "wallet_address",
+    "wallet_chain_id",
+    "signed_message",
+    "signature",
+    "display_name",
+    "email",
+    "country",
+    "interest",
+    "discord_username",
+    "telegram_username",
+    "linkedin_url",
+    "notes",
+    "verification_json",
+    "status",
+    "user_agent",
+    "ip_address",
+    "submitted_at",
+    "created_at",
+    "updated_at"
+  ].join(", ");
+  const foreignKeysEnabled = Boolean(db.pragma("foreign_keys", { simple: true }));
+
+  db.pragma("foreign_keys = OFF");
+  db.pragma("legacy_alter_table = ON");
+  try {
+    db.exec(`
+      BEGIN;
+
+      CREATE TABLE signups_new (
+        id TEXT PRIMARY KEY,
+        x_user_id TEXT,
+        x_username TEXT,
+        x_name TEXT,
+        x_profile_image_url TEXT,
+        wallet_address TEXT NOT NULL,
+        wallet_chain_id INTEGER,
+        signed_message TEXT NOT NULL,
+        signature TEXT NOT NULL,
+        display_name TEXT,
+        email TEXT,
+        country TEXT,
+        interest TEXT,
+        discord_username TEXT,
+        telegram_username TEXT,
+        linkedin_url TEXT,
+        notes TEXT,
+        verification_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'received',
+        user_agent TEXT,
+        ip_address TEXT,
+        submitted_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO signups_new (${columnNames})
+      SELECT ${columnNames}
+      FROM signups;
+
+      DROP TABLE signups;
+      ALTER TABLE signups_new RENAME TO signups;
+
+      COMMIT;
+    `);
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK;");
+    } catch {
+      // Ignore rollback failures; the original error is more useful.
+    }
+    throw error;
+  } finally {
+    db.pragma("legacy_alter_table = OFF");
+    db.pragma(`foreign_keys = ${foreignKeysEnabled ? "ON" : "OFF"}`);
+  }
 }
 
 function getStatusFromBoolean(value) {
@@ -347,6 +436,8 @@ function backfillSocialSchema(db) {
 }
 
 function initializeSchema(db) {
+  initializeBaseSchema(db);
+  ensureNullableXSignupColumns(db);
   initializeBaseSchema(db);
   addSocialSchema(db);
   backfillSocialSchema(db);

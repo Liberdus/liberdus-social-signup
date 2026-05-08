@@ -37,6 +37,7 @@ const requestTokens = new Map();
 const signupChallenges = new Map();
 const adminSessions = new Map();
 let socialProviders;
+const REQUIRED_SOCIAL_PROVIDER_IDS = ["telegram", "discord", "linkedin"];
 
 const db = openDatabase();
 const signupStore = createSignupStore(db);
@@ -709,44 +710,69 @@ socialProviders = createSocialProviders({
 });
 
 function buildSignupSocialAccounts({ session, socialSessions = {}, verification, now }) {
-  const accounts = [{
-    provider: "x",
-    providerUserId: session.profile.id,
-    username: session.profile.username,
-    displayName: session.profile.name || session.profile.username,
-    profileUrl: session.profile.username ? `https://x.com/${session.profile.username}` : "",
-    avatarUrl: session.profile.profileImageUrl || "",
-    connectedAt: session.authenticatedAt || now,
-    rawProfile: session.profile,
-    verifications: [{
-      checkType: "x_authenticated",
-      targetId: session.profile.id,
-      status: "passed",
-      checkedAt: session.authenticatedAt || now,
-      rawResult: verification.x
-    }, {
-      checkType: "x_verified",
-      targetId: session.profile.id,
-      status: getVerificationStatus(Boolean(session.profile.verified)),
-      checkedAt: session.authenticatedAt || now,
-      rawResult: { verified: Boolean(session.profile.verified) }
-    }]
-  }];
+  const accounts = [];
+
+  if (session?.profile?.id) {
+    accounts.push({
+      provider: "x",
+      providerUserId: session.profile.id,
+      username: session.profile.username,
+      displayName: session.profile.name || session.profile.username,
+      profileUrl: session.profile.username ? `https://x.com/${session.profile.username}` : "",
+      avatarUrl: session.profile.profileImageUrl || "",
+      connectedAt: session.authenticatedAt || now,
+      rawProfile: session.profile,
+      verifications: [{
+        checkType: "x_authenticated",
+        targetId: session.profile.id,
+        status: "passed",
+        checkedAt: session.authenticatedAt || now,
+        rawResult: verification.x
+      }, {
+        checkType: "x_verified",
+        targetId: session.profile.id,
+        status: getVerificationStatus(Boolean(session.profile.verified)),
+        checkedAt: session.authenticatedAt || now,
+        rawResult: { verified: Boolean(session.profile.verified) }
+      }]
+    });
+  }
 
   accounts.push(...socialProviders.buildSocialAccounts(socialSessions, now));
 
   return accounts;
 }
 
+function getRequiredSocialIdentities(socialSessions = {}) {
+  return REQUIRED_SOCIAL_PROVIDER_IDS
+    .map((provider) => ({
+      provider,
+      providerUserId: String(socialSessions[provider]?.profile?.id || "").trim()
+    }))
+    .filter((identity) => identity.providerUserId);
+}
+
+function getDistinctExistingSignups(signups = []) {
+  const byId = new Map();
+  for (const signup of signups) {
+    if (signup?.id) byId.set(signup.id, signup);
+  }
+  return [...byId.values()];
+}
+
 async function handleSignupComplete(request, response) {
-  const session = getRequiredSessionFromCookie(request);
-  requireCsrf(request, session);
+  const session = getOptionalSessionFromCookie(request);
   const socialSessions = socialProviders.getSessionsFromCookies(request);
   const browserSession = getSignupBrowserSession(request, response);
   const body = await readJsonRequest(request);
   let walletProof = browserSession.walletProof;
 
   await socialProviders.refreshSessions(socialSessions);
+
+  const requiredSocialIdentities = getRequiredSocialIdentities(socialSessions);
+  if (!requiredSocialIdentities.length) {
+    throw new HttpError(400, "Connect Telegram, Discord, or LinkedIn before submitting.");
+  }
 
   if (!walletProof && body.challengeId && body.signature) {
     walletProof = verifyWalletChallengeForBrowserSession(browserSession, body);
@@ -760,15 +786,20 @@ async function handleSignupComplete(request, response) {
     throw new HttpError(400, "Submitted wallet does not match the verified wallet.");
   }
 
-  const existingByX = signupStore.findByXUserId(session.profile.id);
+  const existingByX = session?.profile?.id ? signupStore.findByXUserId(session.profile.id) : null;
   const existingByWallet = signupStore.findByWalletAddress(walletAddress);
-  if (existingByX && existingByWallet && existingByX.id !== existingByWallet.id) {
-    throw new HttpError(409, "This X account and wallet are already linked to different signups.");
+  const existingByRequiredSocial = getDistinctExistingSignups(
+    requiredSocialIdentities.map((identity) => signupStore.findBySocialAccount(identity.provider, identity.providerUserId))
+  );
+  const existingMatches = getDistinctExistingSignups([existingByX, existingByWallet, ...existingByRequiredSocial]);
+  if (existingMatches.length > 1) {
+    throw new HttpError(409, "These accounts are already linked to different signups.");
   }
-  const existingSignup = existingByX || existingByWallet;
+  const existingSignup = existingMatches[0] || null;
   if (existingSignup) {
     const existingWallet = requireWalletAddress(existingSignup.wallet_address);
-    if (existingSignup.x_user_id !== session.profile.id || existingWallet !== walletAddress) {
+    const existingXUserId = String(existingSignup.x_user_id || "").trim();
+    if (existingWallet !== walletAddress || (existingXUserId && existingXUserId !== session?.profile?.id)) {
       throw new HttpError(409, "This signup uses a different required account. Account replacement is not available yet.");
     }
     writeJson(response, 200, { signup: signupStore.serializeSignup(existingSignup), existing: true });
@@ -778,13 +809,18 @@ async function handleSignupComplete(request, response) {
   const now = new Date().toISOString();
   const socialVerification = socialProviders.getVerificationSnapshot(socialSessions);
   const verification = {
-    x: {
-      authenticated: true,
-      userId: session.profile.id,
-      username: session.profile.username,
-      verified: Boolean(session.profile.verified),
-      followChecks: []
-    },
+    x: session?.profile?.id
+      ? {
+          authenticated: true,
+          userId: session.profile.id,
+          username: session.profile.username,
+          verified: Boolean(session.profile.verified),
+          followChecks: []
+        }
+      : {
+          authenticated: false,
+          followChecks: []
+        },
     wallet: {
       signed: true,
       chainId: walletProof.walletChainId
@@ -796,10 +832,10 @@ async function handleSignupComplete(request, response) {
   try {
     const row = signupStore.saveSignup({
       id: crypto.randomUUID(),
-      xUserId: session.profile.id,
-      xUsername: session.profile.username,
-      xName: session.profile.name,
-      xProfileImageUrl: session.profile.profileImageUrl,
+      xUserId: session?.profile?.id || null,
+      xUsername: session?.profile?.username || "",
+      xName: session?.profile?.name || "",
+      xProfileImageUrl: session?.profile?.profileImageUrl || "",
       walletAddress,
       walletChainId: walletProof.walletChainId,
       signedMessage: walletProof.signedMessage,
@@ -829,7 +865,7 @@ async function handleSignupComplete(request, response) {
     writeJson(response, 200, { signup: row });
   } catch (error) {
     if (String(error?.code || "") === "SQLITE_CONSTRAINT_UNIQUE") {
-      throw new HttpError(409, "This X account, wallet, or connected social account has already been used for a signup.");
+      throw new HttpError(409, "This wallet or connected social account has already been used for a signup.");
     }
     throw error;
   }

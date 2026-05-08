@@ -12,6 +12,7 @@ export const linkedInProvider = {
   sessionKey: "linkedinSession",
   connectingKey: "isConnectingLinkedIn",
   configKeys: ["linkedinAuth"],
+  requirementLabel: "One required",
   footerLink: { label: "LinkedIn", hrefKey: "linkedin", defaultHref: "https://www.linkedin.com/company/liberdus" },
   links: [
     { label: "Follow", hrefKey: "linkedin", defaultHref: "https://www.linkedin.com/company/liberdus" }

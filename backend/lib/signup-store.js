@@ -230,6 +230,13 @@ function createSignupStore(db) {
   const getById = db.prepare("SELECT * FROM signups WHERE id = ?");
   const getByXUserId = db.prepare("SELECT * FROM signups WHERE x_user_id = ?");
   const getByWalletAddress = db.prepare("SELECT * FROM signups WHERE LOWER(wallet_address) = LOWER(?)");
+  const getBySocialAccount = db.prepare(`
+    SELECT signups.*
+    FROM signup_social_accounts account
+    JOIN signups ON signups.id = account.signup_id
+    WHERE account.provider = ?
+      AND account.provider_user_id = ?
+  `);
   const getSocialAccountsBySignupId = db.prepare("SELECT * FROM signup_social_accounts WHERE signup_id = ?");
   const getSocialVerificationsByAccountId = db.prepare(`
     SELECT *
@@ -311,6 +318,13 @@ function createSignupStore(db) {
   function findByWalletAddress(walletAddress) {
     const value = String(walletAddress || "").trim();
     return value ? getByWalletAddress.get(value) || null : null;
+  }
+
+  function findBySocialAccount(provider, providerUserId) {
+    const normalizedProvider = String(provider || "").trim().toLowerCase();
+    const normalizedProviderUserId = String(providerUserId || "").trim();
+    if (!normalizedProvider || !normalizedProviderUserId) return null;
+    return getBySocialAccount.get(normalizedProvider, normalizedProviderUserId) || null;
   }
 
   function listSignups({ search = "", limit = 50, offset = 0 } = {}) {
@@ -400,6 +414,7 @@ function createSignupStore(db) {
     saveSignup,
     findByXUserId,
     findByWalletAddress,
+    findBySocialAccount,
     listSignups,
     getStats,
     exportCsv,
