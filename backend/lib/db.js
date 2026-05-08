@@ -291,6 +291,26 @@ function backfillSocialSchema(db) {
       });
     }
 
+    if (verification.youtube?.connected) {
+      accounts.push({
+        provider: "youtube",
+        providerUserId: verification.youtube?.channelId || verification.youtube?.userId || verification.youtube?.email,
+        username: verification.youtube?.channelHandle ? `@${verification.youtube.channelHandle}` : verification.youtube?.email || "",
+        displayName: verification.youtube?.channelTitle || verification.youtube?.displayName || verification.youtube?.email || "",
+        profileUrl: verification.youtube?.channelUrl || "",
+        avatarUrl: verification.youtube?.picture || "",
+        connectedAt: row.submitted_at,
+        rawProfile: verification.youtube || {},
+        verifications: [{
+          checkType: "youtube_channel_subscribed",
+          targetId: verification.youtube?.targetChannelId || verification.youtube?.targetChannelHandle || "",
+          status: verification.youtube?.subscribed ? "passed" : "failed",
+          checkedAt: verification.youtube?.subscriptionCheckedAt || row.submitted_at,
+          rawResult: verification.youtube || {}
+        }]
+      });
+    }
+
     for (const account of accounts) {
       if (!account.providerUserId) continue;
       const accountId = `${row.id}:${account.provider}`;

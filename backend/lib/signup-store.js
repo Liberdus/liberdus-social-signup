@@ -15,7 +15,7 @@ const CSV_COLUMNS = [
   "status"
 ];
 
-const SOCIAL_PROVIDER_ORDER = ["x", "discord", "telegram", "linkedin", "github"];
+const SOCIAL_PROVIDER_ORDER = ["x", "discord", "telegram", "linkedin", "github", "youtube"];
 
 function parseJson(value) {
   try {

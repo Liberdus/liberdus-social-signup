@@ -7,7 +7,7 @@ Replace the old Google Form flow with a signup website that collects reward-camp
 - Require wallet connection and an EIP-191 message signature to prove wallet ownership.
 - Require X sign-in to prove the user controls the submitted X account.
 - Present signup as a checklist of required and optional account proofs instead of a general-purpose form.
-- Support optional Discord, Telegram, LinkedIn, and GitHub sign-ins.
+- Support optional Discord, Telegram, LinkedIn, GitHub, and YouTube sign-ins.
 - Provide a CoinMarketCap follow link as an unverified optional action.
 - Store submissions in a backend database.
 - Keep the frontend static so it can be hosted through GitHub Pages.
@@ -45,6 +45,7 @@ Frontend:
   - Telegram sign-in and group/channel membership, optional.
   - LinkedIn sign-in, optional.
   - GitHub sign-in and Liberdus repo star check, optional.
+  - YouTube sign-in and Liberdus channel subscription check, optional.
   - CoinMarketCap follow link, optional and not API-verified.
 - Optional checklist rows should be data-driven from `frontend/js/checklist-providers/`, not hand-coded into `frontend/index.html`.
 - Wallet connect belongs inline with the checklist, not in the top navigation.
@@ -83,7 +84,7 @@ Database:
    - User signs in with X.
    - Backend stores an X session cookie and CSRF token.
    - Backend can look up an existing signup for that X user ID.
-6. User optionally signs in with Discord, Telegram, LinkedIn, and GitHub.
+6. User optionally signs in with Discord, Telegram, LinkedIn, GitHub, and YouTube.
 7. User optionally opens the CoinMarketCap follow link.
 8. On final submit, backend verifies:
    - Valid X session.
@@ -91,7 +92,7 @@ Database:
    - Wallet challenge belongs to the current browser signup session.
    - Submitted wallet equals challenged wallet.
    - Signature recovers the submitted wallet.
-   - Optional Discord, Telegram, LinkedIn, and GitHub identities belong to the current browser session.
+   - Optional Discord, Telegram, LinkedIn, GitHub, and YouTube identities belong to the current browser session.
 9. Backend saves or rejects the signup.
 
 ## Existing Signup Lookup
@@ -200,6 +201,24 @@ Recommended approach:
 - Keep GitHub access tokens short-lived and server-side only; do not serialize them to the frontend or database.
 - Local implementation uses `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_OAUTH_CALLBACK_URL`, `GITHUB_TARGET_REPO`, `GITHUB_TARGET_ORG`, and `GITHUB_OAUTH_SCOPES`.
 
+### YouTube
+
+Feasible for Google account sign-in and likely feasible for checking whether the authenticated user is subscribed to the Liberdus channel.
+
+- YouTube sign-in uses Google OAuth for web server applications and keeps the client secret server-side.
+- The YouTube Data API `channels.list` endpoint supports resolving a channel by handle with `forHandle`, so `https://www.youtube.com/@Liberdus` can resolve to a channel ID.
+- The YouTube Data API `subscriptions.list` endpoint supports `mine=true` for the authenticated user's subscriptions and `forChannelId` to filter to the Liberdus channel.
+- Public launch may require Google app verification because `https://www.googleapis.com/auth/youtube.readonly` is a sensitive scope. Local testing can use the OAuth consent screen's test-user mode.
+
+Recommended approach:
+
+- Add YouTube/Google OAuth as optional.
+- Request `openid profile https://www.googleapis.com/auth/youtube.readonly`.
+- Store Google subject ID, display name, profile image, authentication timestamp, target channel, and subscription check result.
+- Recheck the subscription when the YouTube session is loaded so a user can subscribe after signing in and then recheck.
+- Keep YouTube access tokens short-lived and server-side only; do not serialize them to the frontend or database.
+- Local implementation uses `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_OAUTH_CALLBACK_URL`, `YOUTUBE_TARGET_CHANNEL_HANDLE`, `YOUTUBE_TARGET_CHANNEL_ID`, `YOUTUBE_TARGET_CHANNEL_URL`, and `YOUTUBE_OAUTH_SCOPES`.
+
 ### CoinMarketCap
 
 CoinMarketCap should be an optional external follow action, not a verified login.
@@ -272,8 +291,9 @@ Target:
 8. Add Telegram Login as optional identity plus bot-backed group/channel membership check.
 9. Add LinkedIn OIDC as optional sign-in only.
 10. Add GitHub OAuth as optional identity plus repo-star check.
-11. Add CoinMarketCap external follow link.
-12. Add background X follow verification and cached verification results.
-13. Design and implement explicit account replacement with audit history.
-14. Add admin status editing and audit log.
-15. Deploy backend to the selected server and GitHub Pages frontend to the final URL.
+11. Add YouTube OAuth as optional identity plus channel subscription check.
+12. Add CoinMarketCap external follow link.
+13. Add background X follow verification and cached verification results.
+14. Design and implement explicit account replacement with audit history.
+15. Add admin status editing and audit log.
+16. Deploy backend to the selected server and GitHub Pages frontend to the final URL.

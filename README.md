@@ -8,7 +8,7 @@ The current MVP requires:
 - X sign-in to prove X account ownership.
 - Signup details stored in SQLite for admin review.
 
-The public page is moving toward a checklist instead of a details form. Discord, Telegram, LinkedIn, and GitHub are optional sign-in integrations, and CoinMarketCap is an external follow link only. See [docs/SIGNUP_PLAN.md](docs/SIGNUP_PLAN.md) for the provider plan and account replacement notes.
+The public page is moving toward a checklist instead of a details form. Discord, Telegram, LinkedIn, GitHub, and YouTube are optional sign-in integrations, and CoinMarketCap is an external follow link only. See [docs/SIGNUP_PLAN.md](docs/SIGNUP_PLAN.md) for the provider plan and account replacement notes.
 
 The database keeps one row per signup, plus normalized social account and verification-check rows for connected providers. Provider raw profile/check payloads are retained as JSON for audit/debug while searchable identity fields stay relational.
 
@@ -25,7 +25,7 @@ npm install
 Copy-Item .env.example .env
 ```
 
-Edit `.env` with X OAuth credentials, callback URL, optional Discord/Telegram/LinkedIn/GitHub test credentials, and a strong `ADMIN_PASSWORD`.
+Edit `.env` with X OAuth credentials, callback URL, optional Discord/Telegram/LinkedIn/GitHub/YouTube test credentials, and a strong `ADMIN_PASSWORD`.
 
 Run backend:
 

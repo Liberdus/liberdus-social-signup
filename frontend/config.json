@@ -23,6 +23,12 @@
     "targetRepo": "Liberdus/web-client-v2",
     "targetOrg": "Liberdus"
   },
+  "youtubeAuth": {
+    "enabled": false,
+    "targetChannelHandle": "Liberdus",
+    "targetChannelId": "",
+    "targetChannelUrl": "https://www.youtube.com/@Liberdus"
+  },
   "socialLinks": {
     "x": "https://x.com/liberdus",
     "telegram": "https://t.me/LiberdusOfficial",
@@ -31,6 +37,7 @@
     "github": "https://github.com/Liberdus",
     "githubOrg": "https://github.com/Liberdus",
     "githubRepo": "https://github.com/Liberdus/web-client-v2",
+    "youtube": "https://www.youtube.com/@Liberdus",
     "coinMarketCap": "https://coinmarketcap.com/community/profile/Liberdus/"
   }
 }

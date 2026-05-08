@@ -105,11 +105,13 @@ function renderRows(signups) {
     const telegramName = signup.telegramUsername || socialByProvider.telegram?.username || socialByProvider.telegram?.displayName || "";
     const linkedinName = signup.linkedinUrl || socialByProvider.linkedin?.displayName || signup.verification?.linkedin?.name || "";
     const githubName = socialByProvider.github?.username || socialByProvider.github?.displayName || signup.verification?.github?.username || "";
+    const youtubeName = socialByProvider.youtube?.displayName || socialByProvider.youtube?.username || signup.verification?.youtube?.displayName || "";
     const socials = [
       discordName ? `Discord: ${discordName}` : "",
       telegramName ? `Telegram: ${telegramName}` : "",
       linkedinName ? `LinkedIn: ${linkedinName}` : "",
-      githubName ? `GitHub: ${githubName}` : ""
+      githubName ? `GitHub: ${githubName}` : "",
+      youtubeName ? `YouTube: ${youtubeName}` : ""
     ].filter(Boolean);
 
     const row = document.createElement("tr");

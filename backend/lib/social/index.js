@@ -2,13 +2,15 @@ const { createDiscordProvider } = require("./discord");
 const { createTelegramProvider } = require("./telegram");
 const { createLinkedInProvider } = require("./linkedin");
 const { createGitHubProvider } = require("./github");
+const { createYouTubeProvider } = require("./youtube");
 
 function createSocialProviders(context) {
   const providers = [
     createDiscordProvider(context),
     createTelegramProvider(context),
     createLinkedInProvider(context),
-    createGitHubProvider(context)
+    createGitHubProvider(context),
+    createYouTubeProvider(context)
   ];
   const providerById = new Map(providers.map((provider) => [provider.id, provider]));
   const routes = new Map();
