@@ -100,10 +100,14 @@ function renderRows(signups) {
   }
 
   for (const signup of signups) {
+    const socialByProvider = Object.fromEntries((signup.socialAccounts || []).map((account) => [account.provider, account]));
+    const discordName = signup.discordUsername || socialByProvider.discord?.displayName || socialByProvider.discord?.username || "";
+    const telegramName = signup.telegramUsername || socialByProvider.telegram?.username || socialByProvider.telegram?.displayName || "";
+    const linkedinName = signup.linkedinUrl || socialByProvider.linkedin?.displayName || signup.verification?.linkedin?.name || "";
     const socials = [
-      signup.discordUsername ? `Discord: ${signup.discordUsername}` : "",
-      signup.telegramUsername ? `Telegram: ${signup.telegramUsername}` : "",
-      signup.linkedinUrl ? `LinkedIn` : ""
+      discordName ? `Discord: ${discordName}` : "",
+      telegramName ? `Telegram: ${telegramName}` : "",
+      linkedinName ? `LinkedIn: ${linkedinName}` : ""
     ].filter(Boolean);
 
     const row = document.createElement("tr");

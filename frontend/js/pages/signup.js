@@ -34,6 +34,13 @@ import {
   logoutTelegramSession,
   startTelegramLogin
 } from "../shared/telegram-auth.js";
+import {
+  completeLinkedInLoginIfPresent,
+  fetchLinkedInSession,
+  isLinkedInAuthConfigured,
+  logoutLinkedInSession,
+  startLinkedInLogin
+} from "../shared/linkedin-auth.js";
 
 const runtime = {
   config: {},
@@ -52,10 +59,12 @@ const runtime = {
   isConnectingX: false,
   isConnectingDiscord: false,
   isConnectingTelegram: false,
+  isConnectingLinkedIn: false,
   isSubmitting: false,
   xSession: null,
   discordSession: null,
   telegramSession: null,
+  linkedinSession: null,
   walletProof: null,
   existingSignup: null,
   conflictMessage: "",
@@ -84,6 +93,9 @@ const els = {
   telegramAuthButton: document.getElementById("telegramAuthButton"),
   telegramDisconnectButton: document.getElementById("telegramDisconnectButton"),
   linkedinStatusRow: document.getElementById("linkedinStatusRow"),
+  linkedinStatusText: document.getElementById("linkedinStatusText"),
+  linkedinAuthButton: document.getElementById("linkedinAuthButton"),
+  linkedinDisconnectButton: document.getElementById("linkedinDisconnectButton"),
   coinMarketCapStatusRow: document.getElementById("coinMarketCapStatusRow"),
   coinMarketCapStatusText: document.getElementById("coinMarketCapStatusText"),
   xChecklistLink: document.getElementById("xChecklistLink"),
@@ -138,6 +150,10 @@ function hasDiscordSession() {
 
 function hasTelegramSession() {
   return Boolean(runtime.telegramSession?.profile?.id);
+}
+
+function hasLinkedInSession() {
+  return Boolean(runtime.linkedinSession?.profile?.id);
 }
 
 function setConflict(message) {
@@ -263,7 +279,23 @@ function syncOptionalRows() {
   els.telegramAuthButton.textContent = runtime.isConnectingTelegram ? "Opening..." : "Sign in";
   els.telegramDisconnectButton.hidden = !telegramReady;
 
-  els.linkedinStatusRow.dataset.ready = "false";
+  const linkedinReady = hasLinkedInSession();
+  const linkedinConfigured = isLinkedInAuthConfigured(runtime.config);
+  const linkedinProfile = runtime.linkedinSession?.profile || null;
+
+  els.linkedinStatusRow.dataset.ready = linkedinReady ? "true" : "false";
+  if (linkedinReady) {
+    els.linkedinStatusText.textContent = `${linkedinProfile.displayName || linkedinProfile.name || "LinkedIn account"} connected`;
+  } else if (linkedinConfigured) {
+    els.linkedinStatusText.textContent = "Follow Liberdus on LinkedIn and connect your account.";
+  } else {
+    els.linkedinStatusText.textContent = "LinkedIn sign-in is not configured.";
+  }
+  els.linkedinAuthButton.hidden = linkedinReady;
+  els.linkedinAuthButton.disabled = runtime.isConnectingLinkedIn || !linkedinConfigured;
+  els.linkedinAuthButton.textContent = runtime.isConnectingLinkedIn ? "Opening..." : "Sign in";
+  els.linkedinDisconnectButton.hidden = !linkedinReady;
+
   els.coinMarketCapStatusRow.dataset.ready = runtime.coinMarketCapOpened ? "true" : "false";
   if (runtime.coinMarketCapOpened) {
     els.coinMarketCapStatusText.textContent = "Opened this session.";
@@ -436,6 +468,10 @@ async function loadPublicBackendConfig() {
       ...(runtime.config.telegramAuth || {}),
       ...(publicConfig.telegramAuth || {})
     };
+    runtime.config.linkedinAuth = {
+      ...(runtime.config.linkedinAuth || {}),
+      ...(publicConfig.linkedinAuth || {})
+    };
     applySocialLinks();
   } catch {
     // Static config links are still usable if the backend public config is unavailable.
@@ -550,6 +586,29 @@ function bindEvents() {
     }
   });
 
+  els.linkedinAuthButton.addEventListener("click", async () => {
+    try {
+      runtime.isConnectingLinkedIn = true;
+      syncUi();
+      await startLinkedInLogin(runtime.config);
+    } catch (error) {
+      runtime.isConnectingLinkedIn = false;
+      syncUi();
+      reportError(error, "Start LinkedIn sign-in");
+    }
+  });
+
+  els.linkedinDisconnectButton.addEventListener("click", async () => {
+    try {
+      await logoutLinkedInSession(runtime.config);
+      runtime.linkedinSession = null;
+      syncUi();
+      showMessage("LinkedIn account disconnected.");
+    } catch (error) {
+      reportError(error, "Disconnect LinkedIn");
+    }
+  });
+
   els.submitButton.addEventListener("click", () => {
     submitSignup().catch((error) => reportError(error, "Submit signup"));
   });
@@ -634,6 +693,21 @@ async function init() {
 
   if (!runtime.telegramSession) {
     runtime.telegramSession = await fetchTelegramSession(runtime.config).catch(() => null);
+  }
+
+  try {
+    const result = await completeLinkedInLoginIfPresent(runtime.config);
+    runtime.linkedinSession = result.session || runtime.linkedinSession;
+    if (result.handled && runtime.linkedinSession) {
+      showMessage("LinkedIn account connected.", "success");
+    }
+  } catch (error) {
+    runtime.linkedinSession = null;
+    reportError(error, "Complete LinkedIn sign-in");
+  }
+
+  if (!runtime.linkedinSession) {
+    runtime.linkedinSession = await fetchLinkedInSession(runtime.config).catch(() => null);
   }
 
   await syncWalletState(runtime).catch(() => null);

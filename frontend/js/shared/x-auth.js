@@ -149,6 +149,7 @@ function normalizeSignup(signup) {
     telegramUsername: String(signup.telegramUsername || "").trim(),
     linkedinUrl: String(signup.linkedinUrl || "").trim(),
     verification: signup.verification && typeof signup.verification === "object" ? signup.verification : {},
+    socialAccounts: Array.isArray(signup.socialAccounts) ? signup.socialAccounts : [],
     status: String(signup.status || "").trim(),
     submittedAt: signup.submittedAt || null,
     updatedAt: signup.updatedAt || null,

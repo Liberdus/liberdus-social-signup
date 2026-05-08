@@ -1,3 +1,5 @@
+const crypto = require("node:crypto");
+
 const CSV_COLUMNS = [
   "submitted_at",
   "x_username",
@@ -13,15 +15,57 @@ const CSV_COLUMNS = [
   "status"
 ];
 
-function serializeSignup(row) {
+const SOCIAL_PROVIDER_ORDER = ["x", "discord", "telegram", "linkedin"];
+
+function parseJson(value) {
+  try {
+    return JSON.parse(value || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function toJson(value) {
+  return JSON.stringify(value || {});
+}
+
+function serializeSocialVerification(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    socialAccountId: row.social_account_id,
+    checkType: row.check_type,
+    targetId: row.target_id || "",
+    status: row.status,
+    checkedAt: row.checked_at,
+    rawResult: parseJson(row.raw_result_json),
+    createdAt: row.created_at
+  };
+}
+
+function serializeSocialAccount(row, verifications = []) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    signupId: row.signup_id,
+    provider: row.provider,
+    providerUserId: row.provider_user_id,
+    username: row.username || "",
+    displayName: row.display_name || "",
+    profileUrl: row.profile_url || "",
+    avatarUrl: row.avatar_url || "",
+    connectedAt: row.connected_at,
+    rawProfile: parseJson(row.raw_profile_json),
+    verifications,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function serializeSignup(row, { socialAccounts = [] } = {}) {
   if (!row) return null;
 
-  let verification = {};
-  try {
-    verification = JSON.parse(row.verification_json || "{}");
-  } catch {
-    verification = {};
-  }
+  const verification = parseJson(row.verification_json);
 
   return {
     id: row.id,
@@ -40,6 +84,7 @@ function serializeSignup(row) {
     linkedinUrl: row.linkedin_url || "",
     notes: row.notes || "",
     verification,
+    socialAccounts,
     status: row.status,
     submittedAt: row.submitted_at,
     createdAt: row.created_at,
@@ -63,6 +108,16 @@ function escapeCsvValue(value) {
   const text = String(value ?? "");
   if (!/[",\n\r]/u.test(text)) return text;
   return `"${text.replace(/"/gu, '""')}"`;
+}
+
+function normalizeSocialStatus(value) {
+  const status = String(value || "unknown").trim().toLowerCase();
+  return ["passed", "failed", "unknown"].includes(status) ? status : "unknown";
+}
+
+function normalizeProviderOrder(provider) {
+  const index = SOCIAL_PROVIDER_ORDER.indexOf(provider);
+  return index === -1 ? SOCIAL_PROVIDER_ORDER.length : index;
 }
 
 function createSignupStore(db) {
@@ -120,14 +175,132 @@ function createSignupStore(db) {
     )
   `);
 
+  const insertSocialAccount = db.prepare(`
+    INSERT INTO signup_social_accounts (
+      id,
+      signup_id,
+      provider,
+      provider_user_id,
+      username,
+      display_name,
+      profile_url,
+      avatar_url,
+      connected_at,
+      raw_profile_json,
+      created_at,
+      updated_at
+    ) VALUES (
+      @id,
+      @signupId,
+      @provider,
+      @providerUserId,
+      @username,
+      @displayName,
+      @profileUrl,
+      @avatarUrl,
+      @connectedAt,
+      @rawProfileJson,
+      @createdAt,
+      @updatedAt
+    )
+  `);
+
+  const insertSocialVerification = db.prepare(`
+    INSERT INTO signup_social_verifications (
+      id,
+      social_account_id,
+      check_type,
+      target_id,
+      status,
+      checked_at,
+      raw_result_json,
+      created_at
+    ) VALUES (
+      @id,
+      @socialAccountId,
+      @checkType,
+      @targetId,
+      @status,
+      @checkedAt,
+      @rawResultJson,
+      @createdAt
+    )
+  `);
+
   const getById = db.prepare("SELECT * FROM signups WHERE id = ?");
   const getByXUserId = db.prepare("SELECT * FROM signups WHERE x_user_id = ?");
   const getByWalletAddress = db.prepare("SELECT * FROM signups WHERE LOWER(wallet_address) = LOWER(?)");
+  const getSocialAccountsBySignupId = db.prepare("SELECT * FROM signup_social_accounts WHERE signup_id = ?");
+  const getSocialVerificationsByAccountId = db.prepare(`
+    SELECT *
+    FROM signup_social_verifications
+    WHERE social_account_id = ?
+    ORDER BY checked_at DESC, created_at DESC
+  `);
   const countAll = db.prepare("SELECT COUNT(*) AS count FROM signups");
+  const countSocialAccounts = db.prepare("SELECT COUNT(*) AS count FROM signup_social_accounts");
+  const countSocialVerifications = db.prepare("SELECT COUNT(*) AS count FROM signup_social_verifications");
+
+  function getSerializedSignup(row) {
+    if (!row) return null;
+    const socialAccounts = getSocialAccountsBySignupId.all(row.id)
+      .sort((left, right) => {
+        const order = normalizeProviderOrder(left.provider) - normalizeProviderOrder(right.provider);
+        return order || left.provider.localeCompare(right.provider);
+      })
+      .map((account) => serializeSocialAccount(account, getSocialVerificationsByAccountId.all(account.id).map(serializeSocialVerification)));
+    return serializeSignup(row, { socialAccounts });
+  }
+
+  function saveSocialAccounts(signupId, accounts = []) {
+    for (const account of accounts) {
+      const provider = String(account.provider || "").trim().toLowerCase();
+      const providerUserId = String(account.providerUserId || "").trim();
+      if (!provider || !providerUserId) continue;
+
+      const now = account.connectedAt || account.createdAt || new Date().toISOString();
+      const accountId = account.id || `${signupId}:${provider}`;
+      insertSocialAccount.run({
+        id: accountId,
+        signupId,
+        provider,
+        providerUserId,
+        username: String(account.username || "").trim(),
+        displayName: String(account.displayName || "").trim(),
+        profileUrl: String(account.profileUrl || "").trim(),
+        avatarUrl: String(account.avatarUrl || "").trim(),
+        connectedAt: account.connectedAt || now,
+        rawProfileJson: toJson(account.rawProfile),
+        createdAt: account.createdAt || now,
+        updatedAt: account.updatedAt || now
+      });
+
+      for (const verification of account.verifications || []) {
+        const checkType = String(verification.checkType || "").trim();
+        if (!checkType) continue;
+        insertSocialVerification.run({
+          id: verification.id || crypto.randomUUID(),
+          socialAccountId: accountId,
+          checkType,
+          targetId: String(verification.targetId || "").trim(),
+          status: normalizeSocialStatus(verification.status),
+          checkedAt: verification.checkedAt || now,
+          rawResultJson: toJson(verification.rawResult),
+          createdAt: verification.createdAt || now
+        });
+      }
+    }
+  }
+
+  const saveSignupTransaction = db.transaction((input) => {
+    const { socialAccounts = [], ...signupInput } = input;
+    insertSignup.run(signupInput);
+    saveSocialAccounts(input.id, socialAccounts);
+    return getById.get(input.id);
+  });
 
   function saveSignup(input) {
-    insertSignup.run(input);
-    return getById.get(input.id);
+    return getSerializedSignup(saveSignupTransaction(input));
   }
 
   function findByXUserId(xUserId) {
@@ -188,6 +361,8 @@ function createSignupStore(db) {
   function getStats() {
     return {
       signupCount: countAll.get().count,
+      socialAccountCount: countSocialAccounts.get().count,
+      socialVerificationCount: countSocialVerifications.get().count,
       latestSignupAt: db.prepare("SELECT MAX(submitted_at) AS value FROM signups").get().value || null
     };
   }
@@ -208,7 +383,7 @@ function createSignupStore(db) {
     listSignups,
     getStats,
     exportCsv,
-    serializeSignup
+    serializeSignup: getSerializedSignup
   };
 }
 

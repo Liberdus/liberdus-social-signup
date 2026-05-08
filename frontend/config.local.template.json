@@ -11,6 +11,9 @@
     "botId": "",
     "membershipConfigured": false
   },
+  "linkedinAuth": {
+    "enabled": false
+  },
   "socialLinks": {
     "x": "https://x.com/liberdus",
     "telegram": "https://t.me/LiberdusOfficial",

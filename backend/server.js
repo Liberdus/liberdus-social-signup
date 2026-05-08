@@ -5,7 +5,7 @@ const path = require("node:path");
 const dotenv = require("dotenv");
 const { ethers } = require("ethers");
 const { openDatabase, getDatabasePath } = require("./lib/db");
-const { createSignupStore, serializeSignup } = require("./lib/signup-store");
+const { createSignupStore } = require("./lib/signup-store");
 
 dotenv.config({ path: path.join(__dirname, "..", ".env"), quiet: true });
 
@@ -22,11 +22,16 @@ const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token";
 const DISCORD_CURRENT_USER_URL = "https://discord.com/api/users/@me";
 const DISCORD_CURRENT_USER_GUILD_MEMBER_URL_PREFIX = "https://discord.com/api/users/@me/guilds";
 const TELEGRAM_BOT_API_BASE_URL = "https://api.telegram.org";
+const LINKEDIN_AUTHORIZE_URL = "https://www.linkedin.com/oauth/v2/authorization";
+const LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken";
+const LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo";
 const AUTH_SESSION_COOKIE_NAME = "liberdus_signup_x_session";
 const AUTH_INIT_COOKIE_NAME = "liberdus_signup_x_oauth_init";
 const DISCORD_SESSION_COOKIE_NAME = "liberdus_signup_discord_session";
 const DISCORD_INIT_COOKIE_NAME = "liberdus_signup_discord_oauth_init";
 const TELEGRAM_SESSION_COOKIE_NAME = "liberdus_signup_telegram_session";
+const LINKEDIN_SESSION_COOKIE_NAME = "liberdus_signup_linkedin_session";
+const LINKEDIN_INIT_COOKIE_NAME = "liberdus_signup_linkedin_oauth_init";
 const SIGNUP_BROWSER_COOKIE_NAME = "liberdus_signup_browser_session";
 const AUTH_COMPLETE_QUERY_PARAM = "x_auth";
 const AUTH_COMPLETE_QUERY_VALUE = "complete";
@@ -37,11 +42,16 @@ const DISCORD_ERROR_QUERY_PARAM = "discord_error";
 const TELEGRAM_COMPLETE_QUERY_PARAM = "telegram_auth";
 const TELEGRAM_COMPLETE_QUERY_VALUE = "complete";
 const TELEGRAM_ERROR_QUERY_PARAM = "telegram_error";
+const LINKEDIN_COMPLETE_QUERY_PARAM = "linkedin_auth";
+const LINKEDIN_COMPLETE_QUERY_VALUE = "complete";
+const LINKEDIN_ERROR_QUERY_PARAM = "linkedin_error";
 const AUTH_SESSION_TTL_MS = 30 * 60 * 1000;
 const DISCORD_SESSION_TTL_MS = 30 * 60 * 1000;
 const DISCORD_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const TELEGRAM_SESSION_TTL_MS = 30 * 60 * 1000;
 const TELEGRAM_LOGIN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const LINKEDIN_SESSION_TTL_MS = 30 * 60 * 1000;
+const LINKEDIN_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const SIGNUP_BROWSER_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const REQUEST_TOKEN_TTL_MS = 10 * 60 * 1000;
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
@@ -52,6 +62,8 @@ const authSessions = new Map();
 const discordSessions = new Map();
 const discordOauthStates = new Map();
 const telegramSessions = new Map();
+const linkedinSessions = new Map();
+const linkedinOauthStates = new Map();
 const signupBrowserSessions = new Map();
 const requestTokens = new Map();
 const signupChallenges = new Map();
@@ -131,6 +143,18 @@ function getTelegramChatId() {
 
 function getTelegramInviteUrl() {
   return String(process.env.TELEGRAM_INVITE_URL || "").trim();
+}
+
+function getLinkedInClientId() {
+  return String(process.env.LINKEDIN_CLIENT_ID || "").trim();
+}
+
+function getLinkedInClientSecret() {
+  return String(process.env.LINKEDIN_CLIENT_SECRET || "").trim();
+}
+
+function getLinkedInCallbackUrl() {
+  return String(process.env.LINKEDIN_OAUTH_CALLBACK_URL || "").trim();
 }
 
 function getAllowedOrigins() {
@@ -486,6 +510,51 @@ async function fetchDiscordMembership(accessToken) {
   };
 }
 
+async function exchangeLinkedInCode(code, redirectUri) {
+  const clientId = getLinkedInClientId();
+  const clientSecret = getLinkedInClientSecret();
+  if (!clientId || !clientSecret) {
+    throw new HttpError(500, "Missing LinkedIn client ID or client secret in .env.", { expose: false });
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri,
+    client_id: clientId,
+    client_secret: clientSecret
+  });
+
+  const response = await fetch(LINKEDIN_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error(`[LinkedIn token] HTTP ${response.status}: ${JSON.stringify(payload)}`);
+    throw new HttpError(502, "LinkedIn rejected the authentication request.", { expose: false });
+  }
+  return payload;
+}
+
+async function fetchLinkedInProfile(accessToken) {
+  const response = await fetch(LINKEDIN_USERINFO_URL, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error(`[LinkedIn userinfo] HTTP ${response.status}: ${JSON.stringify(payload)}`);
+    throw new HttpError(502, "LinkedIn user lookup failed.", { expose: false });
+  }
+  const profile = normalizeLinkedInProfile(payload);
+  if (!profile.id) {
+    throw new HttpError(502, "LinkedIn did not return a usable profile.", { expose: false });
+  }
+  return profile;
+}
+
 function getTelegramLoginPayload(source) {
   const payload = {};
   for (const key of ["id", "first_name", "last_name", "username", "photo_url", "auth_date", "hash"]) {
@@ -601,6 +670,12 @@ function pruneExpiredState() {
   for (const [key, session] of telegramSessions.entries()) {
     if (session.expiresAtMs <= now) telegramSessions.delete(key);
   }
+  for (const [key, session] of linkedinSessions.entries()) {
+    if (session.expiresAtMs <= now) linkedinSessions.delete(key);
+  }
+  for (const [key, pending] of linkedinOauthStates.entries()) {
+    if (pending.expiresAtMs <= now) linkedinOauthStates.delete(key);
+  }
   for (const [key, session] of signupBrowserSessions.entries()) {
     if (session.expiresAtMs <= now) signupBrowserSessions.delete(key);
   }
@@ -642,13 +717,34 @@ function normalizeDiscordProfile(rawProfile) {
   };
 }
 
+function normalizeLinkedInProfile(rawProfile) {
+  const name = String(rawProfile.name || "").trim();
+  const givenName = String(rawProfile.given_name || "").trim();
+  const familyName = String(rawProfile.family_name || "").trim();
+  const displayName = name || [givenName, familyName].filter(Boolean).join(" ") || String(rawProfile.sub || "").trim();
+  const locale = rawProfile.locale && typeof rawProfile.locale === "object"
+    ? [rawProfile.locale.language, rawProfile.locale.country].filter(Boolean).join("_")
+    : String(rawProfile.locale || "").trim();
+  return {
+    id: String(rawProfile.sub || "").trim(),
+    name,
+    givenName,
+    familyName,
+    displayName,
+    picture: String(rawProfile.picture || "").trim(),
+    email: String(rawProfile.email || "").trim(),
+    emailVerified: rawProfile.email_verified === true,
+    locale
+  };
+}
+
 function serializeSession(session) {
   return {
     profile: session.profile,
     csrfToken: session.csrfToken,
     authenticatedAt: session.authenticatedAt,
     expiresAt: session.expiresAtMs,
-    existingSignup: serializeSignup(signupStore.findByXUserId(session.profile.id))
+    existingSignup: signupStore.serializeSignup(signupStore.findByXUserId(session.profile.id))
   };
 }
 
@@ -672,6 +768,15 @@ function serializeTelegramSession(session) {
   };
 }
 
+function serializeLinkedInSession(session) {
+  if (!session) return null;
+  return {
+    profile: session.profile,
+    authenticatedAt: session.authenticatedAt,
+    expiresAt: session.expiresAtMs
+  };
+}
+
 function getRequiredSessionFromCookie(request) {
   pruneExpiredState();
   const sessionId = parseCookies(request)[AUTH_SESSION_COOKIE_NAME];
@@ -690,6 +795,12 @@ function getTelegramSessionFromCookie(request) {
   pruneExpiredState();
   const sessionId = parseCookies(request)[TELEGRAM_SESSION_COOKIE_NAME];
   return sessionId ? telegramSessions.get(sessionId) || null : null;
+}
+
+function getLinkedInSessionFromCookie(request) {
+  pruneExpiredState();
+  const sessionId = parseCookies(request)[LINKEDIN_SESSION_COOKIE_NAME];
+  return sessionId ? linkedinSessions.get(sessionId) || null : null;
 }
 
 function getOptionalSessionFromCookie(request) {
@@ -1072,6 +1183,112 @@ async function handleTelegramLogout(request, response) {
   writeJson(response, 200, { ok: true });
 }
 
+async function handleLinkedInStart(request, response, requestUrl) {
+  const clientId = getLinkedInClientId();
+  const callbackUrl = getLinkedInCallbackUrl();
+  if (!clientId || !getLinkedInClientSecret()) {
+    throw new HttpError(500, "Missing LinkedIn client ID or client secret in .env.", { expose: false });
+  }
+  if (!callbackUrl) {
+    throw new HttpError(500, "Missing LinkedIn OAuth callback URL in .env.", { expose: false });
+  }
+
+  const returnUri = validateReturnUri(requestUrl.searchParams.get("return_uri"));
+  const state = createRandomToken(24);
+  linkedinOauthStates.set(state, {
+    returnUri,
+    expiresAtMs: Date.now() + LINKEDIN_OAUTH_STATE_TTL_MS
+  });
+  setCookie(response, LINKEDIN_INIT_COOKIE_NAME, state, {
+    path: "/api/linkedin/",
+    maxAge: LINKEDIN_OAUTH_STATE_TTL_MS / 1000,
+    httpOnly: true,
+    sameSite: "Lax",
+    secure: shouldUseSecureCookies()
+  });
+
+  const authorizeUrl = new URL(LINKEDIN_AUTHORIZE_URL);
+  authorizeUrl.searchParams.set("response_type", "code");
+  authorizeUrl.searchParams.set("client_id", clientId);
+  authorizeUrl.searchParams.set("redirect_uri", callbackUrl);
+  authorizeUrl.searchParams.set("scope", "openid profile");
+  authorizeUrl.searchParams.set("state", state);
+  redirect(response, authorizeUrl.toString());
+}
+
+async function handleLinkedInCallback(request, response, requestUrl) {
+  const code = String(requestUrl.searchParams.get("code") || "").trim();
+  const state = String(requestUrl.searchParams.get("state") || "").trim();
+  const errorDescription = String(requestUrl.searchParams.get("error_description") || requestUrl.searchParams.get("error") || "").trim();
+  const pending = state ? linkedinOauthStates.get(state) : null;
+  const returnUri = pending?.returnUri || getDefaultFrontendReturnUrl();
+  const initCookieState = String(parseCookies(request)[LINKEDIN_INIT_COOKIE_NAME] || "").trim();
+  const hasValidInitCookie = Boolean(state && initCookieState && secureEquals(initCookieState, state));
+
+  clearCookie(response, LINKEDIN_INIT_COOKIE_NAME, { path: "/api/linkedin/", sameSite: "Lax", secure: shouldUseSecureCookies() });
+
+  if (errorDescription) {
+    if (state) linkedinOauthStates.delete(state);
+    const url = new URL(returnUri);
+    url.searchParams.set(LINKEDIN_ERROR_QUERY_PARAM, `LinkedIn sign-in failed: ${errorDescription}`);
+    redirect(response, url.toString());
+    return;
+  }
+
+  if (!code || !pending || !hasValidInitCookie) {
+    const url = new URL(returnUri);
+    url.searchParams.set(LINKEDIN_ERROR_QUERY_PARAM, "LinkedIn sign-in expired. Try again.");
+    redirect(response, url.toString());
+    return;
+  }
+
+  const token = await exchangeLinkedInCode(code, getLinkedInCallbackUrl());
+  const profile = await fetchLinkedInProfile(token.access_token);
+  const sessionId = createRandomToken();
+  const now = new Date().toISOString();
+  linkedinSessions.set(sessionId, {
+    sessionId,
+    profile,
+    authenticatedAt: now,
+    expiresAtMs: Date.now() + LINKEDIN_SESSION_TTL_MS
+  });
+  linkedinOauthStates.delete(state);
+  setCookie(response, LINKEDIN_SESSION_COOKIE_NAME, sessionId, {
+    path: "/api/",
+    maxAge: LINKEDIN_SESSION_TTL_MS / 1000,
+    httpOnly: true,
+    sameSite: "Lax",
+    secure: shouldUseSecureCookies()
+  });
+
+  const url = new URL(returnUri);
+  url.searchParams.set(LINKEDIN_COMPLETE_QUERY_PARAM, LINKEDIN_COMPLETE_QUERY_VALUE);
+  redirect(response, url.toString());
+}
+
+async function handleLinkedInSessionLookup(request, response, requestUrl) {
+  const session = getLinkedInSessionFromCookie(request);
+  if (!session) {
+    if (requestUrl.searchParams.get("optional") === "1") {
+      writeJson(response, 200, { session: null });
+      return;
+    }
+    throw new HttpError(401, "Sign in with LinkedIn first.");
+  }
+  writeJson(response, 200, serializeLinkedInSession(session));
+}
+
+async function handleLinkedInLogout(request, response) {
+  const sessionId = parseCookies(request)[LINKEDIN_SESSION_COOKIE_NAME];
+  if (sessionId) linkedinSessions.delete(sessionId);
+  clearCookie(response, LINKEDIN_SESSION_COOKIE_NAME, {
+    path: "/api/",
+    sameSite: "Lax",
+    secure: shouldUseSecureCookies()
+  });
+  writeJson(response, 200, { ok: true });
+}
+
 async function handleSignupChallenge(request, response) {
   const browserSession = getSignupBrowserSession(request, response);
   const xSession = getOptionalSessionFromCookie(request);
@@ -1156,8 +1373,104 @@ async function handleSignupWalletVerify(request, response) {
       chainId: walletProof.walletChainId,
       verifiedAt: walletProof.verifiedAt
     },
-    existingSignup: serializeSignup(signupStore.findByWalletAddress(walletProof.walletAddress))
+    existingSignup: signupStore.serializeSignup(signupStore.findByWalletAddress(walletProof.walletAddress))
   });
+}
+
+function getVerificationStatus(isPassed, isConfigured = true) {
+  if (!isConfigured) return "unknown";
+  return isPassed ? "passed" : "failed";
+}
+
+function buildSignupSocialAccounts({ session, discordSession, telegramSession, linkedinSession, verification, now }) {
+  const accounts = [{
+    provider: "x",
+    providerUserId: session.profile.id,
+    username: session.profile.username,
+    displayName: session.profile.name || session.profile.username,
+    profileUrl: session.profile.username ? `https://x.com/${session.profile.username}` : "",
+    avatarUrl: session.profile.profileImageUrl || "",
+    connectedAt: session.authenticatedAt || now,
+    rawProfile: session.profile,
+    verifications: [{
+      checkType: "x_authenticated",
+      targetId: session.profile.id,
+      status: "passed",
+      checkedAt: session.authenticatedAt || now,
+      rawResult: verification.x
+    }, {
+      checkType: "x_verified",
+      targetId: session.profile.id,
+      status: getVerificationStatus(Boolean(session.profile.verified)),
+      checkedAt: session.authenticatedAt || now,
+      rawResult: { verified: Boolean(session.profile.verified) }
+    }]
+  }];
+
+  if (discordSession?.profile?.id) {
+    accounts.push({
+      provider: "discord",
+      providerUserId: discordSession.profile.id,
+      username: discordSession.profile.legacyTag || discordSession.profile.username,
+      displayName: discordSession.profile.displayName || discordSession.profile.username,
+      profileUrl: "",
+      avatarUrl: discordSession.profile.avatarUrl || "",
+      connectedAt: discordSession.authenticatedAt || now,
+      rawProfile: discordSession.profile,
+      verifications: [{
+        checkType: "discord_guild_member",
+        targetId: discordSession.membership?.guildId || "",
+        status: getVerificationStatus(Boolean(discordSession.membership?.isMember), discordSession.membership?.configured !== false),
+        checkedAt: discordSession.membership?.checkedAt || discordSession.authenticatedAt || now,
+        rawResult: discordSession.membership || {}
+      }]
+    });
+  }
+
+  if (telegramSession?.profile?.id) {
+    accounts.push({
+      provider: "telegram",
+      providerUserId: telegramSession.profile.id,
+      username: telegramSession.profile.username || "",
+      displayName: telegramSession.profile.displayName || telegramSession.profile.username || "",
+      profileUrl: telegramSession.profile.username ? `https://t.me/${telegramSession.profile.username}` : "",
+      avatarUrl: telegramSession.profile.photoUrl || "",
+      connectedAt: telegramSession.authenticatedAt || now,
+      rawProfile: telegramSession.profile,
+      verifications: [{
+        checkType: "telegram_group_member",
+        targetId: telegramSession.membership?.chatId || "",
+        status: getVerificationStatus(Boolean(telegramSession.membership?.isMember), telegramSession.membership?.configured !== false),
+        checkedAt: telegramSession.membership?.checkedAt || telegramSession.authenticatedAt || now,
+        rawResult: telegramSession.membership || {}
+      }]
+    });
+  }
+
+  if (linkedinSession?.profile?.id) {
+    accounts.push({
+      provider: "linkedin",
+      providerUserId: linkedinSession.profile.id,
+      username: "",
+      displayName: linkedinSession.profile.displayName || linkedinSession.profile.name || "",
+      profileUrl: "",
+      avatarUrl: linkedinSession.profile.picture || "",
+      connectedAt: linkedinSession.authenticatedAt || now,
+      rawProfile: linkedinSession.profile,
+      verifications: [{
+        checkType: "linkedin_authenticated",
+        targetId: linkedinSession.profile.id,
+        status: "passed",
+        checkedAt: linkedinSession.authenticatedAt || now,
+        rawResult: {
+          authenticated: true,
+          userId: linkedinSession.profile.id
+        }
+      }]
+    });
+  }
+
+  return accounts;
 }
 
 async function handleSignupComplete(request, response) {
@@ -1165,6 +1478,7 @@ async function handleSignupComplete(request, response) {
   requireCsrf(request, session);
   const discordSession = getDiscordSessionFromCookie(request);
   const telegramSession = getTelegramSessionFromCookie(request);
+  const linkedinSession = getLinkedInSessionFromCookie(request);
   const browserSession = getSignupBrowserSession(request, response);
   const body = await readJsonRequest(request);
   let walletProof = browserSession.walletProof;
@@ -1192,7 +1506,7 @@ async function handleSignupComplete(request, response) {
     if (existingSignup.x_user_id !== session.profile.id || existingWallet !== walletAddress) {
       throw new HttpError(409, "This signup uses a different required account. Account replacement is not available yet.");
     }
-    writeJson(response, 200, { signup: serializeSignup(existingSignup), existing: true });
+    writeJson(response, 200, { signup: signupStore.serializeSignup(existingSignup), existing: true });
     return;
   }
 
@@ -1202,6 +1516,7 @@ async function handleSignupComplete(request, response) {
       authenticated: true,
       userId: session.profile.id,
       username: session.profile.username,
+      verified: Boolean(session.profile.verified),
       followChecks: []
     },
     wallet: {
@@ -1227,7 +1542,14 @@ async function handleSignupComplete(request, response) {
       status: telegramSession?.membership?.status || "",
       membershipCheckedAt: telegramSession?.membership?.checkedAt || null
     },
-    linkedin: { connected: false, verified: false },
+    linkedin: {
+      connected: Boolean(linkedinSession),
+      authenticated: Boolean(linkedinSession),
+      userId: linkedinSession?.profile?.id || "",
+      name: linkedinSession?.profile?.displayName || linkedinSession?.profile?.name || "",
+      picture: linkedinSession?.profile?.picture || "",
+      followVerified: false
+    },
     coinMarketCap: { opened: Boolean(body.coinMarketCapOpened), verified: false }
   };
 
@@ -1248,7 +1570,7 @@ async function handleSignupComplete(request, response) {
       interest: "",
       discordUsername: discordSession?.profile?.legacyTag || discordSession?.profile?.username || "",
       telegramUsername: telegramSession?.profile?.username || telegramSession?.profile?.displayName || "",
-      linkedinUrl: "",
+      linkedinUrl: linkedinSession?.profile?.displayName || "",
       notes: "",
       verificationJson: JSON.stringify(verification),
       status: "received",
@@ -1256,12 +1578,20 @@ async function handleSignupComplete(request, response) {
       ipAddress: normalizeText(getClientIp(request), 80),
       submittedAt: now,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      socialAccounts: buildSignupSocialAccounts({
+        session,
+        discordSession,
+        telegramSession,
+        linkedinSession,
+        verification,
+        now
+      })
     });
-    writeJson(response, 200, { signup: serializeSignup(row) });
+    writeJson(response, 200, { signup: row });
   } catch (error) {
     if (String(error?.code || "") === "SQLITE_CONSTRAINT_UNIQUE") {
-      throw new HttpError(409, "This X account or wallet has already been used for a signup.");
+      throw new HttpError(409, "This X account, wallet, or connected social account has already been used for a signup.");
     }
     throw error;
   }
@@ -1321,7 +1651,7 @@ function handleAdminSignupList(request, response, requestUrl) {
     total: result.total,
     limit: result.limit,
     offset: result.offset,
-    signups: result.rows.map((row) => serializeSignup(row))
+    signups: result.rows.map((row) => signupStore.serializeSignup(row))
   });
 }
 
@@ -1383,7 +1713,8 @@ const server = http.createServer(async (request, response) => {
         discordApiConfigured: Boolean(getDiscordClientId() && getDiscordClientSecret() && getDiscordCallbackUrl()),
         discordGuildConfigured: Boolean(getDiscordGuildId()),
         telegramBotConfigured: Boolean(getTelegramBotUsername() && getTelegramBotToken()),
-        telegramChatConfigured: Boolean(getTelegramChatId())
+        telegramChatConfigured: Boolean(getTelegramChatId()),
+        linkedinApiConfigured: Boolean(getLinkedInClientId() && getLinkedInClientSecret() && getLinkedInCallbackUrl())
       });
       return;
     }
@@ -1400,6 +1731,9 @@ const server = http.createServer(async (request, response) => {
           botUsername: getTelegramBotUsername(),
           botId: getTelegramBotId(),
           membershipConfigured: Boolean(getTelegramChatId())
+        },
+        linkedinAuth: {
+          enabled: Boolean(getLinkedInClientId() && getLinkedInClientSecret() && getLinkedInCallbackUrl())
         }
       });
       return;
@@ -1472,6 +1806,28 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && pathname === "/api/linkedin/start") {
+      await handleLinkedInStart(request, response, requestUrl);
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/api/linkedin/callback") {
+      await handleLinkedInCallback(request, response, requestUrl);
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/api/linkedin/session") {
+      requireAllowedOrigin(request, response);
+      await handleLinkedInSessionLookup(request, response, requestUrl);
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/linkedin/logout") {
+      requireAllowedOrigin(request, response);
+      await handleLinkedInLogout(request, response);
+      return;
+    }
+
     if (request.method === "POST" && pathname === "/api/signup/challenge") {
       requireAllowedOrigin(request, response);
       await handleSignupChallenge(request, response);
@@ -1528,6 +1884,7 @@ server.listen(PORT, HOST, () => {
   console.log(`X API configured: ${getApiKey() && getApiSecret() ? "yes" : "no"}`);
   console.log(`X callback URL: ${getCallbackUrl() || "(missing)"}`);
   console.log(`Telegram bot configured: ${getTelegramBotUsername() && getTelegramBotToken() ? "yes" : "no"}`);
+  console.log(`LinkedIn API configured: ${getLinkedInClientId() && getLinkedInClientSecret() ? "yes" : "no"}`);
   console.log(`Secure cookies: ${shouldUseSecureCookies() ? "yes" : "no"}`);
   console.log(`Signup count: ${signupStore.getStats().signupCount}`);
 });

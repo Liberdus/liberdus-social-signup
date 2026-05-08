@@ -57,9 +57,11 @@ Backend:
 
 Database:
 
-- `signups` table keyed by signup ID.
-- Unique X user ID and unique wallet address to reduce duplicate/spam submissions.
-- Stores wallet proof, X identity, optional linked social identities, verification JSON, status, timestamps, user agent, and IP.
+- `signups` table keyed by signup ID for wallet proof, required X/wallet summary fields, status, timestamps, user agent, and IP.
+- Unique X user ID and unique wallet address reduce duplicate/spam submissions.
+- `signup_social_accounts` stores one row per connected account with provider, provider user ID, username/display name, profile/avatar URL, connected timestamp, and raw normalized profile JSON.
+- `signup_social_verifications` stores one row per verification check, such as `x_verified`, `discord_guild_member`, `telegram_group_member`, and `linkedin_authenticated`.
+- `verification_json` remains as a compatibility snapshot, but normalized social account/check rows are the long-term source for search, filtering, audit history, and account replacement.
 - Should support explicit account replacement history so changes are visible and auditable.
 
 ## Required Signup Flow
@@ -173,6 +175,7 @@ Recommended approach:
 - Store LinkedIn subject ID, name, profile picture if returned, email only if returned and needed, and authentication timestamp.
 - Do not rely on LinkedIn follow verification unless Liberdus obtains the needed LinkedIn API product access.
 - Show LinkedIn as an optional connected account, not as a verified follow task.
+- Local implementation uses backend-owned OAuth with `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, and `LINKEDIN_OAUTH_CALLBACK_URL`.
 
 ### CoinMarketCap
 
