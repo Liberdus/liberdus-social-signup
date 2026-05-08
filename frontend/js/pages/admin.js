@@ -104,10 +104,12 @@ function renderRows(signups) {
     const discordName = signup.discordUsername || socialByProvider.discord?.displayName || socialByProvider.discord?.username || "";
     const telegramName = signup.telegramUsername || socialByProvider.telegram?.username || socialByProvider.telegram?.displayName || "";
     const linkedinName = signup.linkedinUrl || socialByProvider.linkedin?.displayName || signup.verification?.linkedin?.name || "";
+    const githubName = socialByProvider.github?.username || socialByProvider.github?.displayName || signup.verification?.github?.username || "";
     const socials = [
       discordName ? `Discord: ${discordName}` : "",
       telegramName ? `Telegram: ${telegramName}` : "",
-      linkedinName ? `LinkedIn: ${linkedinName}` : ""
+      linkedinName ? `LinkedIn: ${linkedinName}` : "",
+      githubName ? `GitHub: ${githubName}` : ""
     ].filter(Boolean);
 
     const row = document.createElement("tr");

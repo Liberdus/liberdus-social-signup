@@ -7,7 +7,7 @@ Replace the old Google Form flow with a signup website that collects reward-camp
 - Require wallet connection and an EIP-191 message signature to prove wallet ownership.
 - Require X sign-in to prove the user controls the submitted X account.
 - Present signup as a checklist of required and optional account proofs instead of a general-purpose form.
-- Support optional Discord, Telegram, and LinkedIn sign-ins.
+- Support optional Discord, Telegram, LinkedIn, and GitHub sign-ins.
 - Provide a CoinMarketCap follow link as an unverified optional action.
 - Store submissions in a backend database.
 - Keep the frontend static so it can be hosted through GitHub Pages.
@@ -22,6 +22,8 @@ This repository contains an MVP structure:
 - `backend/server.js`: Node HTTP API for X OAuth, wallet-signature challenges, signup submission, admin login, list, and CSV export.
 - `backend/lib/db.js`: SQLite initialization.
 - `backend/lib/signup-store.js`: signup persistence and export.
+- `backend/lib/social/`: one backend provider module per optional social integration.
+- `frontend/js/checklist-providers/`: one frontend checklist definition per optional social or external action.
 - `vendor/liberdus-wallet-module`: temporary local copy from `Liberdus/liberdus-wallet-module` branch `base_branch`.
 
 The frontend reuses the Liberdus rewards visual style, logo assets, injected-wallet discovery, wallet picker, and X OAuth client helper. Contract, Merkle proof, token transfer, airdrop round, and owner-wallet admin code were intentionally not copied into the main app.
@@ -42,7 +44,9 @@ Frontend:
   - Discord sign-in and server membership, optional.
   - Telegram sign-in and group/channel membership, optional.
   - LinkedIn sign-in, optional.
+  - GitHub sign-in and Liberdus repo star check, optional.
   - CoinMarketCap follow link, optional and not API-verified.
+- Optional checklist rows should be data-driven from `frontend/js/checklist-providers/`, not hand-coded into `frontend/index.html`.
 - Wallet connect belongs inline with the checklist, not in the top navigation.
 - Signup state should load after a user proves control of either an existing X account or an existing wallet.
 
@@ -51,6 +55,7 @@ Backend:
 - Node HTTP server, intentionally similar to the rewards backend deployment model.
 - SQLite for MVP storage.
 - OAuth and bot secrets stay server-side.
+- Optional social backends should be added through `backend/lib/social/{provider}.js` and registered in `backend/lib/social/index.js`.
 - Backend should support an anonymous browser signup session so wallet proof can happen before or after X sign-in.
 - Admin authentication uses `ADMIN_USERNAME` and `ADMIN_PASSWORD` from `.env`, returning a short-lived admin token.
 - Future production option: put the API behind a reverse proxy with TLS, rate limits, backups, and monitoring.
@@ -78,7 +83,7 @@ Database:
    - User signs in with X.
    - Backend stores an X session cookie and CSRF token.
    - Backend can look up an existing signup for that X user ID.
-6. User optionally signs in with Discord, Telegram, and LinkedIn.
+6. User optionally signs in with Discord, Telegram, LinkedIn, and GitHub.
 7. User optionally opens the CoinMarketCap follow link.
 8. On final submit, backend verifies:
    - Valid X session.
@@ -86,7 +91,7 @@ Database:
    - Wallet challenge belongs to the current browser signup session.
    - Submitted wallet equals challenged wallet.
    - Signature recovers the submitted wallet.
-   - Optional Discord, Telegram, and LinkedIn identities belong to the current browser session.
+   - Optional Discord, Telegram, LinkedIn, and GitHub identities belong to the current browser session.
 9. Backend saves or rejects the signup.
 
 ## Existing Signup Lookup
@@ -177,6 +182,24 @@ Recommended approach:
 - Show LinkedIn as an optional connected account, not as a verified follow task.
 - Local implementation uses backend-owned OAuth with `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, and `LINKEDIN_OAUTH_CALLBACK_URL`.
 
+### GitHub
+
+Feasible for sign-in and for verifying that the authenticated user starred a public repository.
+
+- GitHub OAuth proves the user controls the GitHub account.
+- The REST API supports checking whether the authenticated user starred a repo with `GET /user/starred/{owner}/{repo}`. GitHub documents this endpoint here: https://docs.github.com/en/rest/activity/starring?apiVersion=2022-11-28#check-if-a-repository-is-starred-by-the-authenticated-user
+- The current target repo is `Liberdus/web-client-v2`, and the org follow link is `https://github.com/Liberdus`.
+- Org follow verification is not part of the current implementation because the repo star is the higher-value signal.
+
+Recommended approach:
+
+- Add GitHub OAuth as optional.
+- Request the minimum practical scopes, starting with `read:user`.
+- Store GitHub user ID, username, display name, profile URL, avatar URL, authentication timestamp, and repo-star check result.
+- Recheck the repo star when the GitHub session is loaded so a user can star the repo after signing in and then recheck.
+- Keep GitHub access tokens short-lived and server-side only; do not serialize them to the frontend or database.
+- Local implementation uses `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_OAUTH_CALLBACK_URL`, `GITHUB_TARGET_REPO`, `GITHUB_TARGET_ORG`, and `GITHUB_OAUTH_SCOPES`.
+
 ### CoinMarketCap
 
 CoinMarketCap should be an optional external follow action, not a verified login.
@@ -248,8 +271,9 @@ Target:
 7. Add Discord OAuth as optional identity plus guild membership check.
 8. Add Telegram Login as optional identity plus bot-backed group/channel membership check.
 9. Add LinkedIn OIDC as optional sign-in only.
-10. Add CoinMarketCap external follow link.
-11. Add background X follow verification and cached verification results.
-12. Design and implement explicit account replacement with audit history.
-13. Add admin status editing and audit log.
-14. Deploy backend to the selected server and GitHub Pages frontend to the final URL.
+10. Add GitHub OAuth as optional identity plus repo-star check.
+11. Add CoinMarketCap external follow link.
+12. Add background X follow verification and cached verification results.
+13. Design and implement explicit account replacement with audit history.
+14. Add admin status editing and audit log.
+15. Deploy backend to the selected server and GitHub Pages frontend to the final URL.

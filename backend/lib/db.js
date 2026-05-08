@@ -271,6 +271,26 @@ function backfillSocialSchema(db) {
       });
     }
 
+    if (verification.github?.connected) {
+      accounts.push({
+        provider: "github",
+        providerUserId: verification.github?.userId || verification.github?.username,
+        username: verification.github?.username || "",
+        displayName: verification.github?.displayName || verification.github?.username || "",
+        profileUrl: verification.github?.profileUrl || "",
+        avatarUrl: "",
+        connectedAt: row.submitted_at,
+        rawProfile: verification.github || {},
+        verifications: [{
+          checkType: "github_repo_starred",
+          targetId: verification.github?.targetRepo || "",
+          status: verification.github?.repoStarred ? "passed" : "failed",
+          checkedAt: verification.github?.repoStarCheckedAt || row.submitted_at,
+          rawResult: verification.github || {}
+        }]
+      });
+    }
+
     for (const account of accounts) {
       if (!account.providerUserId) continue;
       const accountId = `${row.id}:${account.provider}`;

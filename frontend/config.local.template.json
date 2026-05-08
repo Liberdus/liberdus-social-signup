@@ -11,14 +11,26 @@
     "botId": "",
     "membershipConfigured": false
   },
+  "discordAuth": {
+    "enabled": false,
+    "membershipConfigured": false
+  },
   "linkedinAuth": {
     "enabled": false
+  },
+  "githubAuth": {
+    "enabled": false,
+    "targetRepo": "Liberdus/web-client-v2",
+    "targetOrg": "Liberdus"
   },
   "socialLinks": {
     "x": "https://x.com/liberdus",
     "telegram": "https://t.me/LiberdusOfficial",
     "discord": "https://liberdus.com/discord",
     "linkedin": "https://www.linkedin.com/company/liberdus",
+    "github": "https://github.com/Liberdus",
+    "githubOrg": "https://github.com/Liberdus",
+    "githubRepo": "https://github.com/Liberdus/web-client-v2",
     "coinMarketCap": "https://coinmarketcap.com/community/profile/Liberdus/"
   }
 }

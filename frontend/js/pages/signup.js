@@ -20,27 +20,7 @@ import {
   logoutXSession,
   completeXLoginIfPresent
 } from "../shared/x-auth.js";
-import {
-  completeDiscordLoginIfPresent,
-  fetchDiscordSession,
-  isDiscordAuthConfigured,
-  logoutDiscordSession,
-  startDiscordLogin
-} from "../shared/discord-auth.js";
-import {
-  completeTelegramLoginIfPresent,
-  fetchTelegramSession,
-  isTelegramAuthConfigured,
-  logoutTelegramSession,
-  startTelegramLogin
-} from "../shared/telegram-auth.js";
-import {
-  completeLinkedInLoginIfPresent,
-  fetchLinkedInSession,
-  isLinkedInAuthConfigured,
-  logoutLinkedInSession,
-  startLinkedInLogin
-} from "../shared/linkedin-auth.js";
+import { checklistProviders } from "../checklist-providers/index.js";
 
 const runtime = {
   config: {},
@@ -60,16 +40,24 @@ const runtime = {
   isConnectingDiscord: false,
   isConnectingTelegram: false,
   isConnectingLinkedIn: false,
+  isConnectingGitHub: false,
   isSubmitting: false,
   xSession: null,
   discordSession: null,
   telegramSession: null,
   linkedinSession: null,
+  githubSession: null,
   walletProof: null,
   existingSignup: null,
   conflictMessage: "",
   coinMarketCapOpened: false
 };
+
+for (const provider of checklistProviders) {
+  if (provider.sessionKey && !(provider.sessionKey in runtime)) runtime[provider.sessionKey] = null;
+  if (provider.connectingKey && !(provider.connectingKey in runtime)) runtime[provider.connectingKey] = false;
+  if (provider.trackKey && !(provider.trackKey in runtime)) runtime[provider.trackKey] = false;
+}
 
 const els = {
   connectButton: document.getElementById("connectButton"),
@@ -84,25 +72,8 @@ const els = {
   xStatusText: document.getElementById("xStatusText"),
   xAuthButton: document.getElementById("xAuthButton"),
   xDisconnectButton: document.getElementById("xDisconnectButton"),
-  discordStatusRow: document.getElementById("discordStatusRow"),
-  discordStatusText: document.getElementById("discordStatusText"),
-  discordAuthButton: document.getElementById("discordAuthButton"),
-  discordDisconnectButton: document.getElementById("discordDisconnectButton"),
-  telegramStatusRow: document.getElementById("telegramStatusRow"),
-  telegramStatusText: document.getElementById("telegramStatusText"),
-  telegramAuthButton: document.getElementById("telegramAuthButton"),
-  telegramDisconnectButton: document.getElementById("telegramDisconnectButton"),
-  linkedinStatusRow: document.getElementById("linkedinStatusRow"),
-  linkedinStatusText: document.getElementById("linkedinStatusText"),
-  linkedinAuthButton: document.getElementById("linkedinAuthButton"),
-  linkedinDisconnectButton: document.getElementById("linkedinDisconnectButton"),
-  coinMarketCapStatusRow: document.getElementById("coinMarketCapStatusRow"),
-  coinMarketCapStatusText: document.getElementById("coinMarketCapStatusText"),
+  optionalChecklist: document.getElementById("optionalChecklist"),
   xChecklistLink: document.getElementById("xChecklistLink"),
-  discordChecklistLink: document.getElementById("discordChecklistLink"),
-  telegramChecklistLink: document.getElementById("telegramChecklistLink"),
-  linkedinChecklistLink: document.getElementById("linkedinChecklistLink"),
-  coinMarketCapLink: document.getElementById("coinMarketCapLink"),
   submitButton: document.getElementById("submitButton"),
   proofHint: document.getElementById("proofHint"),
   submissionStatus: document.getElementById("submissionStatus"),
@@ -112,10 +83,10 @@ const els = {
   signupToastMessage: document.getElementById("signupToastMessage"),
   signupToastClose: document.getElementById("signupToastClose"),
   xLink: document.getElementById("xLink"),
-  telegramLink: document.getElementById("telegramLink"),
-  discordLink: document.getElementById("discordLink"),
-  linkedinLink: document.getElementById("linkedinLink")
+  footerSocialLinks: document.getElementById("footerSocialLinks")
 };
+
+const providerElements = new Map();
 
 const toast = createToastController({
   element: els.signupToast,
@@ -144,18 +115,6 @@ function hasXSession() {
   return Boolean(runtime.xSession?.profile?.username && runtime.xSession?.csrfToken);
 }
 
-function hasDiscordSession() {
-  return Boolean(runtime.discordSession?.profile?.username);
-}
-
-function hasTelegramSession() {
-  return Boolean(runtime.telegramSession?.profile?.id);
-}
-
-function hasLinkedInSession() {
-  return Boolean(runtime.linkedinSession?.profile?.id);
-}
-
 function setConflict(message) {
   runtime.conflictMessage = message;
   if (message) {
@@ -173,6 +132,134 @@ function applyExistingSignup(signup, source) {
 
   runtime.existingSignup = signup;
   runtime.conflictMessage = "";
+}
+
+function getConfiguredHref(link) {
+  const links = runtime.config.socialLinks || {};
+  return links[link.hrefKey] || links[link.fallbackHrefKey] || link.defaultHref || "#";
+}
+
+function createProviderLink(provider, link) {
+  const anchor = document.createElement("a");
+  anchor.className = "secondary nav-button checklist-link";
+  anchor.href = getConfiguredHref(link);
+  anchor.target = "_blank";
+  anchor.rel = "noreferrer noopener";
+  anchor.textContent = link.label;
+  anchor.dataset.providerId = provider.id;
+  anchor.dataset.hrefKey = link.hrefKey || "";
+  anchor.dataset.fallbackHrefKey = link.fallbackHrefKey || "";
+  if (provider.onLinkClick) {
+    anchor.addEventListener("click", () => {
+      provider.onLinkClick({ runtime, link });
+      syncUi();
+    });
+  }
+  return anchor;
+}
+
+function renderProviderRows() {
+  const fragment = document.createDocumentFragment();
+
+  for (const provider of checklistProviders) {
+    const row = document.createElement("article");
+    row.className = "checklist-item";
+    row.id = `${provider.id}StatusRow`;
+
+    const dot = document.createElement("span");
+    dot.className = "status-dot";
+    dot.setAttribute("aria-hidden", "true");
+
+    const copy = document.createElement("div");
+    copy.className = "checklist-copy";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "checklist-title-row";
+
+    const title = document.createElement("h3");
+    title.textContent = provider.title;
+
+    const optional = document.createElement("span");
+    optional.className = "optional-pill";
+    optional.textContent = "Optional";
+
+    const statusText = document.createElement("p");
+    statusText.id = `${provider.id}StatusText`;
+
+    titleRow.append(title, optional);
+    copy.append(titleRow, statusText);
+
+    const actions = document.createElement("div");
+    actions.className = "checklist-actions button-row";
+    const links = (provider.links || []).map((link) => createProviderLink(provider, link));
+    actions.append(...links);
+
+    let authButton = null;
+    let disconnectButton = null;
+    if (provider.start) {
+      authButton = document.createElement("button");
+      authButton.id = `${provider.id}AuthButton`;
+      authButton.type = "button";
+      authButton.className = "secondary";
+      authButton.textContent = "Sign in";
+      actions.append(authButton);
+    }
+    if (provider.disconnect) {
+      disconnectButton = document.createElement("button");
+      disconnectButton.id = `${provider.id}DisconnectButton`;
+      disconnectButton.type = "button";
+      disconnectButton.className = "ghost";
+      disconnectButton.textContent = "Sign out";
+      disconnectButton.hidden = true;
+      actions.append(disconnectButton);
+    }
+
+    providerElements.set(provider.id, {
+      row,
+      statusText,
+      links,
+      authButton,
+      disconnectButton
+    });
+    row.append(dot, copy, actions);
+    fragment.append(row);
+  }
+
+  els.optionalChecklist.replaceChildren(fragment);
+}
+
+function renderFooterLinks() {
+  const adminLink = els.footerSocialLinks.querySelector('a[href="./admin/"]');
+  const anchors = [];
+  for (const provider of checklistProviders) {
+    if (!provider.footerLink) continue;
+    const anchor = document.createElement("a");
+    anchor.className = "footer-link-anchor";
+    anchor.href = getConfiguredHref(provider.footerLink);
+    anchor.target = "_blank";
+    anchor.rel = "noreferrer noopener";
+    anchor.textContent = provider.footerLink.label;
+    anchor.dataset.providerId = provider.id;
+    anchor.dataset.hrefKey = provider.footerLink.hrefKey || "";
+    anchor.dataset.fallbackHrefKey = provider.footerLink.fallbackHrefKey || "";
+    anchors.push(anchor);
+  }
+  els.footerSocialLinks.replaceChildren(...[els.xLink, ...anchors, adminLink].filter(Boolean));
+}
+
+function updateProviderLinks(provider, elements) {
+  for (const anchor of elements.links || []) {
+    anchor.href = getConfiguredHref({
+      hrefKey: anchor.dataset.hrefKey,
+      fallbackHrefKey: anchor.dataset.fallbackHrefKey,
+      defaultHref: anchor.href
+    });
+  }
+
+  const footerAnchor = els.footerSocialLinks.querySelector(`[data-provider-id="${provider.id}"]`);
+  if (footerAnchor && provider.footerLink) {
+    footerAnchor.href = getConfiguredHref(provider.footerLink);
+  }
 }
 
 function setWalletMenuOpen(isOpen) {
@@ -239,66 +326,35 @@ function syncXUi() {
 }
 
 function syncOptionalRows() {
-  const discordReady = hasDiscordSession();
-  const discordConfigured = isDiscordAuthConfigured(runtime.config);
-  const discordProfile = runtime.discordSession?.profile || null;
-  const discordMembership = runtime.discordSession?.membership || null;
+  for (const provider of checklistProviders) {
+    const elements = providerElements.get(provider.id);
+    if (!elements) continue;
 
-  els.discordStatusRow.dataset.ready = discordReady ? "true" : "false";
-  if (discordReady) {
-    const name = discordProfile.displayName || discordProfile.username;
-    els.discordStatusText.textContent = discordMembership?.isMember
-      ? `${name} connected and server membership confirmed`
-      : `${name} connected; join the server to complete this optional check`;
-  } else {
-    els.discordStatusText.textContent = "Join the Liberdus server and connect your Discord account.";
-  }
-  els.discordAuthButton.hidden = discordReady;
-  els.discordAuthButton.disabled = runtime.isConnectingDiscord || !discordConfigured;
-  els.discordAuthButton.textContent = runtime.isConnectingDiscord ? "Opening..." : "Sign in";
-  els.discordDisconnectButton.hidden = !discordReady;
+    const session = provider.sessionKey ? runtime[provider.sessionKey] : null;
+    const configured = provider.isConfigured ? provider.isConfigured(runtime.config) : true;
+    const ready = provider.isReady ? provider.isReady(session, runtime) : false;
+    const connecting = provider.connectingKey ? Boolean(runtime[provider.connectingKey]) : false;
 
-  const telegramReady = hasTelegramSession();
-  const telegramConfigured = isTelegramAuthConfigured(runtime.config);
-  const telegramProfile = runtime.telegramSession?.profile || null;
-  const telegramMembership = runtime.telegramSession?.membership || null;
+    elements.row.dataset.ready = ready ? "true" : "false";
+    elements.statusText.textContent = provider.getStatusText({
+      session,
+      runtime,
+      config: runtime.config,
+      configured
+    });
 
-  els.telegramStatusRow.dataset.ready = telegramReady ? "true" : "false";
-  if (telegramReady) {
-    const name = telegramProfile.username ? `@${telegramProfile.username}` : telegramProfile.displayName;
-    els.telegramStatusText.textContent = telegramMembership?.isMember
-      ? `${name} connected and group membership confirmed`
-      : `${name} connected; join the group to complete this optional check`;
-  } else if (telegramConfigured) {
-    els.telegramStatusText.textContent = "Join the Liberdus Telegram and connect your account.";
-  } else {
-    els.telegramStatusText.textContent = "Telegram sign-in is not configured.";
-  }
-  els.telegramAuthButton.hidden = telegramReady;
-  els.telegramAuthButton.disabled = runtime.isConnectingTelegram || !telegramConfigured;
-  els.telegramAuthButton.textContent = runtime.isConnectingTelegram ? "Opening..." : "Sign in";
-  els.telegramDisconnectButton.hidden = !telegramReady;
+    updateProviderLinks(provider, elements);
 
-  const linkedinReady = hasLinkedInSession();
-  const linkedinConfigured = isLinkedInAuthConfigured(runtime.config);
-  const linkedinProfile = runtime.linkedinSession?.profile || null;
-
-  els.linkedinStatusRow.dataset.ready = linkedinReady ? "true" : "false";
-  if (linkedinReady) {
-    els.linkedinStatusText.textContent = `${linkedinProfile.displayName || linkedinProfile.name || "LinkedIn account"} connected`;
-  } else if (linkedinConfigured) {
-    els.linkedinStatusText.textContent = "Follow Liberdus on LinkedIn and connect your account.";
-  } else {
-    els.linkedinStatusText.textContent = "LinkedIn sign-in is not configured.";
-  }
-  els.linkedinAuthButton.hidden = linkedinReady;
-  els.linkedinAuthButton.disabled = runtime.isConnectingLinkedIn || !linkedinConfigured;
-  els.linkedinAuthButton.textContent = runtime.isConnectingLinkedIn ? "Opening..." : "Sign in";
-  els.linkedinDisconnectButton.hidden = !linkedinReady;
-
-  els.coinMarketCapStatusRow.dataset.ready = runtime.coinMarketCapOpened ? "true" : "false";
-  if (runtime.coinMarketCapOpened) {
-    els.coinMarketCapStatusText.textContent = "Opened this session.";
+    if (elements.authButton) {
+      elements.authButton.hidden = ready;
+      elements.authButton.disabled = connecting || !configured;
+      elements.authButton.textContent = provider.getAuthButtonText
+        ? provider.getAuthButtonText({ connecting, session, runtime, config: runtime.config })
+        : connecting ? "Opening..." : "Sign in";
+    }
+    if (elements.disconnectButton) {
+      elements.disconnectButton.hidden = !session;
+    }
   }
 }
 
@@ -448,13 +504,10 @@ function applySocialLinks() {
   };
   setHref(els.xLink, links.x);
   setHref(els.xChecklistLink, links.x);
-  setHref(els.telegramLink, links.telegram);
-  setHref(els.telegramChecklistLink, links.telegram);
-  setHref(els.discordLink, links.discord);
-  setHref(els.discordChecklistLink, links.discord);
-  setHref(els.linkedinLink, links.linkedin);
-  setHref(els.linkedinChecklistLink, links.linkedin);
-  setHref(els.coinMarketCapLink, links.coinMarketCap || links.cmc);
+  for (const provider of checklistProviders) {
+    const elements = providerElements.get(provider.id);
+    if (elements) updateProviderLinks(provider, elements);
+  }
 }
 
 async function loadPublicBackendConfig() {
@@ -464,14 +517,14 @@ async function loadPublicBackendConfig() {
       ...(runtime.config.socialLinks || {}),
       ...(publicConfig.socialLinks || {})
     };
-    runtime.config.telegramAuth = {
-      ...(runtime.config.telegramAuth || {}),
-      ...(publicConfig.telegramAuth || {})
-    };
-    runtime.config.linkedinAuth = {
-      ...(runtime.config.linkedinAuth || {}),
-      ...(publicConfig.linkedinAuth || {})
-    };
+    for (const provider of checklistProviders) {
+      for (const key of provider.configKeys || []) {
+        runtime.config[key] = {
+          ...(runtime.config[key] || {}),
+          ...(publicConfig[key] || {})
+        };
+      }
+    }
     applySocialLinks();
   } catch {
     // Static config links are still usable if the backend public config is unavailable.
@@ -538,84 +591,40 @@ function bindEvents() {
     }
   });
 
-  els.discordAuthButton.addEventListener("click", async () => {
-    try {
-      runtime.isConnectingDiscord = true;
-      syncUi();
-      await startDiscordLogin(runtime.config);
-    } catch (error) {
-      runtime.isConnectingDiscord = false;
-      syncUi();
-      reportError(error, "Start Discord sign-in");
+  for (const provider of checklistProviders) {
+    const elements = providerElements.get(provider.id);
+    if (elements?.authButton && provider.start) {
+      elements.authButton.addEventListener("click", async () => {
+        try {
+          if (provider.connectingKey) runtime[provider.connectingKey] = true;
+          syncUi();
+          const result = await provider.start({ runtime, syncUi, showMessage });
+          if (result?.redirecting) return;
+        } catch (error) {
+          reportError(error, `Start ${provider.title} sign-in`);
+        } finally {
+          if (provider.connectingKey) runtime[provider.connectingKey] = false;
+          syncUi();
+        }
+      });
     }
-  });
 
-  els.discordDisconnectButton.addEventListener("click", async () => {
-    try {
-      await logoutDiscordSession(runtime.config);
-      runtime.discordSession = null;
-      syncUi();
-      showMessage("Discord account disconnected.");
-    } catch (error) {
-      reportError(error, "Disconnect Discord");
+    if (elements?.disconnectButton && provider.disconnect) {
+      elements.disconnectButton.addEventListener("click", async () => {
+        try {
+          await provider.disconnect({ runtime });
+          if (provider.sessionKey) runtime[provider.sessionKey] = null;
+          syncUi();
+          showMessage(`${provider.title} account disconnected.`);
+        } catch (error) {
+          reportError(error, `Disconnect ${provider.title}`);
+        }
+      });
     }
-  });
-
-  els.telegramAuthButton.addEventListener("click", async () => {
-    try {
-      runtime.isConnectingTelegram = true;
-      syncUi();
-      runtime.telegramSession = await startTelegramLogin(runtime.config);
-      showMessage("Telegram account connected.", "success");
-    } catch (error) {
-      reportError(error, "Start Telegram sign-in");
-    } finally {
-      runtime.isConnectingTelegram = false;
-      syncUi();
-    }
-  });
-
-  els.telegramDisconnectButton.addEventListener("click", async () => {
-    try {
-      await logoutTelegramSession(runtime.config);
-      runtime.telegramSession = null;
-      syncUi();
-      showMessage("Telegram account disconnected.");
-    } catch (error) {
-      reportError(error, "Disconnect Telegram");
-    }
-  });
-
-  els.linkedinAuthButton.addEventListener("click", async () => {
-    try {
-      runtime.isConnectingLinkedIn = true;
-      syncUi();
-      await startLinkedInLogin(runtime.config);
-    } catch (error) {
-      runtime.isConnectingLinkedIn = false;
-      syncUi();
-      reportError(error, "Start LinkedIn sign-in");
-    }
-  });
-
-  els.linkedinDisconnectButton.addEventListener("click", async () => {
-    try {
-      await logoutLinkedInSession(runtime.config);
-      runtime.linkedinSession = null;
-      syncUi();
-      showMessage("LinkedIn account disconnected.");
-    } catch (error) {
-      reportError(error, "Disconnect LinkedIn");
-    }
-  });
+  }
 
   els.submitButton.addEventListener("click", () => {
     submitSignup().catch((error) => reportError(error, "Submit signup"));
-  });
-
-  els.coinMarketCapLink.addEventListener("click", () => {
-    runtime.coinMarketCapOpened = true;
-    syncUi();
   });
 
   bindWalletEvents({
@@ -644,6 +653,8 @@ function bindEvents() {
 async function init() {
   const loaded = await loadUiConfig();
   runtime.config = loaded.config;
+  renderProviderRows();
+  renderFooterLinks();
   applySocialLinks();
   await loadPublicBackendConfig();
   syncXSessionFromStorage();
@@ -665,49 +676,23 @@ async function init() {
     reportError(error, "Complete X sign-in");
   }
 
-  try {
-    const result = await completeDiscordLoginIfPresent(runtime.config);
-    runtime.discordSession = result.session || runtime.discordSession;
-    if (result.handled && runtime.discordSession) {
-      showMessage("Discord account connected.", "success");
+  for (const provider of checklistProviders) {
+    if (!provider.sessionKey) continue;
+
+    try {
+      const result = provider.complete ? await provider.complete(runtime.config) : { handled: false, session: null };
+      runtime[provider.sessionKey] = result.session || runtime[provider.sessionKey];
+      if (result.handled && runtime[provider.sessionKey]) {
+        showMessage(provider.getSuccessMessage?.(runtime[provider.sessionKey]) || `${provider.title} account connected.`, "success");
+      }
+    } catch (error) {
+      runtime[provider.sessionKey] = null;
+      reportError(error, `Complete ${provider.title} sign-in`);
     }
-  } catch (error) {
-    runtime.discordSession = null;
-    reportError(error, "Complete Discord sign-in");
-  }
 
-  if (!runtime.discordSession) {
-    runtime.discordSession = await fetchDiscordSession(runtime.config).catch(() => null);
-  }
-
-  try {
-    const result = await completeTelegramLoginIfPresent(runtime.config);
-    runtime.telegramSession = result.session || runtime.telegramSession;
-    if (result.handled && runtime.telegramSession) {
-      showMessage("Telegram account connected.", "success");
+    if (!runtime[provider.sessionKey] && provider.fetchSession) {
+      runtime[provider.sessionKey] = await provider.fetchSession(runtime.config).catch(() => null);
     }
-  } catch (error) {
-    runtime.telegramSession = null;
-    reportError(error, "Complete Telegram sign-in");
-  }
-
-  if (!runtime.telegramSession) {
-    runtime.telegramSession = await fetchTelegramSession(runtime.config).catch(() => null);
-  }
-
-  try {
-    const result = await completeLinkedInLoginIfPresent(runtime.config);
-    runtime.linkedinSession = result.session || runtime.linkedinSession;
-    if (result.handled && runtime.linkedinSession) {
-      showMessage("LinkedIn account connected.", "success");
-    }
-  } catch (error) {
-    runtime.linkedinSession = null;
-    reportError(error, "Complete LinkedIn sign-in");
-  }
-
-  if (!runtime.linkedinSession) {
-    runtime.linkedinSession = await fetchLinkedInSession(runtime.config).catch(() => null);
   }
 
   await syncWalletState(runtime).catch(() => null);

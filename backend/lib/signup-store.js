@@ -15,7 +15,7 @@ const CSV_COLUMNS = [
   "status"
 ];
 
-const SOCIAL_PROVIDER_ORDER = ["x", "discord", "telegram", "linkedin"];
+const SOCIAL_PROVIDER_ORDER = ["x", "discord", "telegram", "linkedin", "github"];
 
 function parseJson(value) {
   try {
@@ -331,6 +331,16 @@ function createSignupStore(db) {
            OR LOWER(discord_username) LIKE @term
            OR LOWER(telegram_username) LIKE @term
            OR LOWER(linkedin_url) LIKE @term
+           OR EXISTS (
+                SELECT 1
+                FROM signup_social_accounts account
+                WHERE account.signup_id = signups.id
+                  AND (
+                    LOWER(account.username) LIKE @term
+                    OR LOWER(account.display_name) LIKE @term
+                    OR LOWER(account.provider_user_id) LIKE @term
+                  )
+             )
         ORDER BY submitted_at DESC, updated_at DESC
         LIMIT @limit OFFSET @offset
       `).all({ term: likeTerm, limit: normalizedLimit, offset: normalizedOffset });
@@ -345,6 +355,16 @@ function createSignupStore(db) {
            OR LOWER(discord_username) LIKE @term
            OR LOWER(telegram_username) LIKE @term
            OR LOWER(linkedin_url) LIKE @term
+           OR EXISTS (
+                SELECT 1
+                FROM signup_social_accounts account
+                WHERE account.signup_id = signups.id
+                  AND (
+                    LOWER(account.username) LIKE @term
+                    OR LOWER(account.display_name) LIKE @term
+                    OR LOWER(account.provider_user_id) LIKE @term
+                  )
+             )
       `).get({ term: likeTerm }).count;
       return { rows, total, limit: normalizedLimit, offset: normalizedOffset };
     }
