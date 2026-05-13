@@ -94,6 +94,10 @@ function getAllowedOrigins() {
     .filter(Boolean);
 }
 
+function isE2ETestMode() {
+  return /^(1|true|yes)$/iu.test(String(process.env.E2E_TEST_MODE || "").trim());
+}
+
 function normalizeUrlString(rawValue) {
   const value = String(rawValue || "").trim();
   if (!value) return "";
@@ -1006,6 +1010,17 @@ function handleAdminSignupExport(request, response) {
   });
 }
 
+async function handleTestDiscordSession(request, response) {
+  if (!isE2ETestMode()) throw new HttpError(404, "Not found.");
+  requireAllowedOrigin(request, response);
+  const body = await readJsonRequest(request);
+  const provider = socialProviders.providerById.get("discord");
+  if (!provider?.createTestSession) {
+    throw new HttpError(500, "Discord test session helper is unavailable.", { expose: false });
+  }
+  writeJson(response, 200, provider.createTestSession(response, body));
+}
+
 function handleOptions(request, response) {
   if (!setCorsHeaders(request, response)) {
     throw new HttpError(403, "Origin is not allowed.");
@@ -1064,6 +1079,11 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && pathname === "/api/public/config") {
       requireAllowedOrigin(request, response);
       writeJson(response, 200, socialProviders.getPublicConfig());
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/test/session/discord") {
+      await handleTestDiscordSession(request, response);
       return;
     }
 

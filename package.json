@@ -7,6 +7,7 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
     "test:unit": "node --test \"test/unit/*.test.js\"",
+    "test:e2e": "playwright test",
     "serve": "node backend/server.js",
     "serve:static": "node scripts/static-server.js"
   },
@@ -15,5 +16,7 @@
     "dotenv": "^17.4.2",
     "ethers": "^6.15.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
+  }
 }

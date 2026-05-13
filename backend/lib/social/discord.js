@@ -306,6 +306,42 @@ function createDiscordProvider(context) {
     };
   }
 
+  function createTestSession(response, overrides = {}) {
+    const now = new Date().toISOString();
+    const profile = normalizeProfile({
+      id: overrides.id || "e2e-discord-user",
+      username: overrides.username || "e2ediscord",
+      global_name: overrides.displayName || overrides.username || "E2E Discord",
+      discriminator: "0",
+      avatar: ""
+    });
+    const membership = {
+      configured: true,
+      isMember: overrides.isMember !== false,
+      guildId: overrides.guildId || getGuildId() || "e2e-guild",
+      nick: "",
+      roles: [],
+      joinedAt: now,
+      checkedAt: now
+    };
+    const sessionId = createRandomToken();
+    sessions.set(sessionId, {
+      sessionId,
+      profile,
+      membership,
+      authenticatedAt: now,
+      expiresAtMs: Date.now() + DISCORD_SESSION_TTL_MS
+    });
+    setCookie(response, DISCORD_SESSION_COOKIE_NAME, sessionId, {
+      path: "/api/",
+      maxAge: DISCORD_SESSION_TTL_MS / 1000,
+      httpOnly: true,
+      sameSite: "Lax",
+      secure: shouldUseSecureCookies()
+    });
+    return serializeSession(sessions.get(sessionId));
+  }
+
   return {
     id: "discord",
     routes: {
@@ -319,6 +355,7 @@ function createDiscordProvider(context) {
     serializeSession,
     getVerification,
     buildSocialAccount,
+    createTestSession,
     getHealth() {
       return {
         discordApiConfigured: Boolean(getClientId() && getClientSecret() && getCallbackUrl()),
