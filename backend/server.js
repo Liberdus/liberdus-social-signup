@@ -23,8 +23,10 @@ const AUTH_INIT_COOKIE_NAME = "liberdus_signup_x_oauth_init";
 const SIGNUP_BROWSER_COOKIE_NAME = "liberdus_signup_browser_session";
 const AUTH_COMPLETE_QUERY_PARAM = "x_auth";
 const AUTH_COMPLETE_QUERY_VALUE = "complete";
+const AUTH_COMPLETION_TOKEN_QUERY_PARAM = "x_completion";
 const AUTH_ERROR_QUERY_PARAM = "x_error";
 const AUTH_SESSION_TTL_MS = 30 * 60 * 1000;
+const AUTH_COMPLETION_TOKEN_TTL_MS = 5 * 60 * 1000;
 const SIGNUP_BROWSER_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const REQUEST_TOKEN_TTL_MS = 10 * 60 * 1000;
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
@@ -32,12 +34,13 @@ const ADMIN_SESSION_TTL_MS = 60 * 60 * 1000;
 const MAX_JSON_BODY_BYTES = 64 * 1024;
 
 const authSessions = new Map();
+const authCompletions = new Map();
 const signupBrowserSessions = new Map();
 const requestTokens = new Map();
 const signupChallenges = new Map();
 const adminSessions = new Map();
 let socialProviders;
-const REQUIRED_SOCIAL_PROVIDER_IDS = ["telegram", "discord", "linkedin"];
+const REQUIRED_SOCIAL_PROVIDER_IDS = ["x", "telegram", "discord", "linkedin"];
 
 const db = openDatabase();
 const signupStore = createSignupStore(db);
@@ -360,6 +363,9 @@ function pruneExpiredState() {
   for (const [key, session] of authSessions.entries()) {
     if (session.expiresAtMs <= now) authSessions.delete(key);
   }
+  for (const [key, completion] of authCompletions.entries()) {
+    if (completion.expiresAtMs <= now) authCompletions.delete(key);
+  }
   for (const [key, session] of signupBrowserSessions.entries()) {
     if (session.expiresAtMs <= now) signupBrowserSessions.delete(key);
   }
@@ -389,8 +395,7 @@ function serializeSession(session) {
     profile: session.profile,
     csrfToken: session.csrfToken,
     authenticatedAt: session.authenticatedAt,
-    expiresAt: session.expiresAtMs,
-    existingSignup: signupStore.serializeSignup(signupStore.findByXUserId(session.profile.id))
+    expiresAt: session.expiresAtMs
   };
 }
 
@@ -406,6 +411,16 @@ function getOptionalSessionFromCookie(request) {
   pruneExpiredState();
   const sessionId = parseCookies(request)[AUTH_SESSION_COOKIE_NAME];
   return sessionId ? authSessions.get(sessionId) || null : null;
+}
+
+function setXSessionCookie(response, sessionId) {
+  setCookie(response, AUTH_SESSION_COOKIE_NAME, sessionId, {
+    path: "/api/",
+    maxAge: AUTH_SESSION_TTL_MS / 1000,
+    httpOnly: true,
+    sameSite: "Lax",
+    secure: shouldUseSecureCookies()
+  });
 }
 
 function createSignupBrowserSession(response) {
@@ -441,6 +456,18 @@ function getSignupBrowserSession(request, response) {
   return createSignupBrowserSession(response);
 }
 
+function requireSignupBrowserSession(request) {
+  pruneExpiredState();
+  const sessionId = parseCookies(request)[SIGNUP_BROWSER_COOKIE_NAME];
+  const existing = sessionId ? signupBrowserSessions.get(sessionId) : null;
+  if (!existing) {
+    throw new HttpError(403, "Signup session expired. Reload the page and try again.");
+  }
+  existing.expiresAtMs = Date.now() + SIGNUP_BROWSER_SESSION_TTL_MS;
+  existing.updatedAt = new Date().toISOString();
+  return existing;
+}
+
 function requireCsrf(request, session) {
   const csrfToken = String(request.headers["x-csrf-token"] || "").trim();
   if (!csrfToken || !secureEquals(csrfToken, session.csrfToken)) {
@@ -456,6 +483,26 @@ function requireWalletAddress(value) {
 function normalizeText(value, maxLength) {
   const text = String(value || "").trim();
   return text.slice(0, maxLength);
+}
+
+function parseJsonObject(value) {
+  try {
+    const parsed = JSON.parse(value || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getProviderLabel(provider) {
+  return ({
+    x: "X",
+    discord: "Discord",
+    telegram: "Telegram",
+    linkedin: "LinkedIn",
+    github: "GitHub",
+    youtube: "YouTube"
+  })[provider] || provider;
 }
 
 function buildWalletSignupMessage({ profile, walletAddress, challengeId, issuedAt }) {
@@ -565,21 +612,28 @@ async function handleCallback(request, response, requestUrl) {
     expiresAtMs: Date.now() + AUTH_SESSION_TTL_MS
   });
   requestTokens.delete(oauthToken);
-  setCookie(response, AUTH_SESSION_COOKIE_NAME, sessionId, {
-    path: "/api/",
-    maxAge: AUTH_SESSION_TTL_MS / 1000,
-    httpOnly: true,
-    sameSite: "Lax",
-    secure: shouldUseSecureCookies()
+  setXSessionCookie(response, sessionId);
+  const completionToken = createRandomToken(18);
+  authCompletions.set(completionToken, {
+    sessionId,
+    expiresAtMs: Date.now() + AUTH_COMPLETION_TOKEN_TTL_MS
   });
 
   const url = new URL(returnUri);
   url.searchParams.set(AUTH_COMPLETE_QUERY_PARAM, AUTH_COMPLETE_QUERY_VALUE);
+  url.searchParams.set(AUTH_COMPLETION_TOKEN_QUERY_PARAM, completionToken);
   redirect(response, url.toString());
 }
 
-async function handleSessionLookup(request, response) {
-  const session = getRequiredSessionFromCookie(request);
+async function handleSessionLookup(request, response, requestUrl) {
+  const completionToken = String(requestUrl.searchParams.get(AUTH_COMPLETION_TOKEN_QUERY_PARAM) || "").trim();
+  const completion = completionToken ? authCompletions.get(completionToken) : null;
+  const session = completion?.sessionId
+    ? authSessions.get(completion.sessionId) || null
+    : getRequiredSessionFromCookie(request);
+  if (completionToken) authCompletions.delete(completionToken);
+  if (!session) throw new HttpError(401, "Sign in with X first.");
+  setXSessionCookie(response, session.sessionId);
   writeJson(response, 200, serializeSession(session));
 }
 
@@ -674,16 +728,22 @@ function verifyWalletChallengeForBrowserSession(browserSession, body, { consume 
 }
 
 async function handleSignupWalletVerify(request, response) {
-  const browserSession = getSignupBrowserSession(request, response);
+  const browserSession = requireSignupBrowserSession(request);
   const body = await readJsonRequest(request);
   const walletProof = verifyWalletChallengeForBrowserSession(browserSession, body);
+  const existingSignupRow = signupStore.findByWalletAddress(walletProof.walletAddress);
+  if (existingSignupRow?.id) {
+    browserSession.authenticatedSignupId = existingSignupRow.id;
+    browserSession.authenticatedWalletAddress = walletProof.walletAddress;
+    browserSession.updatedAt = new Date().toISOString();
+  }
   writeJson(response, 200, {
     wallet: {
       address: walletProof.walletAddress,
       chainId: walletProof.walletChainId,
       verifiedAt: walletProof.verifiedAt
     },
-    existingSignup: signupStore.serializeSignup(signupStore.findByWalletAddress(walletProof.walletAddress))
+    existingSignup: signupStore.serializeSignup(existingSignupRow)
   });
 }
 
@@ -743,15 +803,6 @@ function buildSignupSocialAccounts({ session, socialSessions = {}, verification,
   return accounts;
 }
 
-function getRequiredSocialIdentities(socialSessions = {}) {
-  return REQUIRED_SOCIAL_PROVIDER_IDS
-    .map((provider) => ({
-      provider,
-      providerUserId: String(socialSessions[provider]?.profile?.id || "").trim()
-    }))
-    .filter((identity) => identity.providerUserId);
-}
-
 function getDistinctExistingSignups(signups = []) {
   const byId = new Map();
   for (const signup of signups) {
@@ -760,55 +811,38 @@ function getDistinctExistingSignups(signups = []) {
   return [...byId.values()];
 }
 
-async function handleSignupComplete(request, response) {
-  const session = getOptionalSessionFromCookie(request);
-  const socialSessions = socialProviders.getSessionsFromCookies(request);
-  const browserSession = getSignupBrowserSession(request, response);
-  const body = await readJsonRequest(request);
-  let walletProof = browserSession.walletProof;
+function hasRequiredSocialAccount(accounts = []) {
+  return accounts.some((account) => REQUIRED_SOCIAL_PROVIDER_IDS.includes(account.provider) && account.providerUserId);
+}
 
-  await socialProviders.refreshSessions(socialSessions);
-
-  const requiredSocialIdentities = getRequiredSocialIdentities(socialSessions);
-  if (!requiredSocialIdentities.length) {
-    throw new HttpError(400, "Connect Telegram, Discord, or LinkedIn before submitting.");
-  }
-
-  if (!walletProof && body.challengeId && body.signature) {
-    walletProof = verifyWalletChallengeForBrowserSession(browserSession, body);
-  }
-  if (!walletProof) {
-    throw new HttpError(400, "Verify wallet ownership before submitting.");
-  }
-
-  const walletAddress = requireWalletAddress(body.walletAddress || walletProof.walletAddress);
-  if (walletAddress !== walletProof.walletAddress) {
-    throw new HttpError(400, "Submitted wallet does not match the verified wallet.");
-  }
-
-  const existingByX = session?.profile?.id ? signupStore.findByXUserId(session.profile.id) : null;
-  const existingByWallet = signupStore.findByWalletAddress(walletAddress);
-  const existingByRequiredSocial = getDistinctExistingSignups(
-    requiredSocialIdentities.map((identity) => signupStore.findBySocialAccount(identity.provider, identity.providerUserId))
+function signupHasRequiredSocial(signup) {
+  return Boolean(
+    signup?.xUserId
+    || (signup?.socialAccounts || []).some((account) => REQUIRED_SOCIAL_PROVIDER_IDS.includes(account.provider) && account.providerUserId)
   );
-  const existingMatches = getDistinctExistingSignups([existingByX, existingByWallet, ...existingByRequiredSocial]);
-  if (existingMatches.length > 1) {
-    throw new HttpError(409, "These accounts are already linked to different signups.");
-  }
-  const existingSignup = existingMatches[0] || null;
-  if (existingSignup) {
-    const existingWallet = requireWalletAddress(existingSignup.wallet_address);
-    const existingXUserId = String(existingSignup.x_user_id || "").trim();
-    if (existingWallet !== walletAddress || (existingXUserId && existingXUserId !== session?.profile?.id)) {
-      throw new HttpError(409, "This signup uses a different required account. Account replacement is not available yet.");
-    }
-    writeJson(response, 200, { signup: signupStore.serializeSignup(existingSignup), existing: true });
-    return;
-  }
+}
 
-  const now = new Date().toISOString();
+function findSocialAccountOwner(account) {
+  if (!account?.provider || !account?.providerUserId) return null;
+  if (account.provider === "x") {
+    return signupStore.findBySocialAccount(account.provider, account.providerUserId)
+      || signupStore.findByXUserId(account.providerUserId);
+  }
+  return signupStore.findBySocialAccount(account.provider, account.providerUserId);
+}
+
+function assertNoSocialConflicts(accounts, targetSignupId = "") {
+  for (const account of accounts) {
+    const owner = findSocialAccountOwner(account);
+    if (owner?.id && owner.id !== targetSignupId) {
+      throw new HttpError(409, `This ${getProviderLabel(account.provider)} account is already linked to another signup.`);
+    }
+  }
+}
+
+function buildCurrentVerification({ session, socialSessions, walletProof, coinMarketCapOpened }) {
   const socialVerification = socialProviders.getVerificationSnapshot(socialSessions);
-  const verification = {
+  return {
     x: session?.profile?.id
       ? {
           authenticated: true,
@@ -826,43 +860,151 @@ async function handleSignupComplete(request, response) {
       chainId: walletProof.walletChainId
     },
     ...socialVerification,
-    coinMarketCap: { opened: Boolean(body.coinMarketCapOpened), verified: false }
+    coinMarketCap: { opened: Boolean(coinMarketCapOpened), verified: false }
+  };
+}
+
+function mergeVerification(existingSignup, currentVerification, { hasXSession }) {
+  if (!existingSignup) return currentVerification;
+  const existing = parseJsonObject(existingSignup.verification_json);
+  return {
+    ...existing,
+    ...currentVerification,
+    x: hasXSession ? currentVerification.x : existing.x || currentVerification.x,
+    coinMarketCap: {
+      ...(existing.coinMarketCap || {}),
+      ...currentVerification.coinMarketCap,
+      opened: Boolean(existing.coinMarketCap?.opened || currentVerification.coinMarketCap?.opened)
+    }
+  };
+}
+
+function mergeSocialAccounts(existingAccounts = [], currentAccounts = []) {
+  const byProvider = new Map();
+  for (const account of existingAccounts) {
+    if (account?.provider && account?.providerUserId) byProvider.set(account.provider, account);
+  }
+  for (const account of currentAccounts) {
+    if (account?.provider && account?.providerUserId) byProvider.set(account.provider, account);
+  }
+  return [...byProvider.values()];
+}
+
+function getOptionalSummaryValue(value, fallback = "") {
+  const normalized = String(value || "").trim();
+  return normalized || fallback || undefined;
+}
+
+async function handleSignupComplete(request, response) {
+  const session = getOptionalSessionFromCookie(request);
+  const socialSessions = socialProviders.getSessionsFromCookies(request);
+  const browserSession = requireSignupBrowserSession(request);
+  const body = await readJsonRequest(request);
+
+  await socialProviders.refreshSessions(socialSessions);
+
+  const walletProof = verifyWalletChallengeForBrowserSession(browserSession, body);
+  if (!walletProof) {
+    throw new HttpError(400, "Verify wallet ownership before submitting.");
+  }
+
+  const walletAddress = requireWalletAddress(body.walletAddress || walletProof.walletAddress);
+  if (walletAddress !== walletProof.walletAddress) {
+    throw new HttpError(400, "Submitted wallet does not match the verified wallet.");
+  }
+
+  const now = new Date().toISOString();
+  const currentVerification = buildCurrentVerification({
+    session,
+    socialSessions,
+    walletProof,
+    coinMarketCapOpened: body.coinMarketCapOpened
+  });
+  const currentSocialAccounts = buildSignupSocialAccounts({
+    session,
+    socialSessions,
+    verification: currentVerification,
+    now
+  });
+
+  const existingByX = session?.profile?.id ? signupStore.findByXUserId(session.profile.id) : null;
+  const existingByWallet = signupStore.findByWalletAddress(walletAddress);
+  const authenticatedSignup = browserSession.authenticatedSignupId
+    ? signupStore.findById(browserSession.authenticatedSignupId)
+    : null;
+  const targetMatches = getDistinctExistingSignups([authenticatedSignup, existingByWallet]);
+  if (targetMatches.length > 1) {
+    throw new HttpError(409, "These accounts are already linked to different signups.");
+  }
+  const targetSignup = targetMatches[0] || null;
+  const targetSignupId = targetSignup?.id || "";
+
+  if (existingByX?.id && existingByX.id !== targetSignupId) {
+    throw new HttpError(409, "This X account is already linked to another signup.");
+  }
+
+  assertNoSocialConflicts(currentSocialAccounts, targetSignupId);
+
+  const targetSignupSerialized = targetSignup ? signupStore.serializeSignup(targetSignup) : null;
+  if (!hasRequiredSocialAccount(currentSocialAccounts) && !signupHasRequiredSocial(targetSignupSerialized)) {
+    throw new HttpError(400, "Connect X, Telegram, Discord, or LinkedIn before submitting.");
+  }
+
+  const verification = mergeVerification(targetSignup, currentVerification, { hasXSession: Boolean(session?.profile?.id) });
+  const mergedSocialAccounts = targetSignupSerialized
+    ? mergeSocialAccounts(targetSignupSerialized.socialAccounts, currentSocialAccounts)
+    : currentSocialAccounts;
+  const signupInput = {
+    id: targetSignup?.id || crypto.randomUUID(),
+    xUserId: session?.profile?.id || targetSignup?.x_user_id || undefined,
+    xUsername: session?.profile?.username || targetSignup?.x_username || undefined,
+    xName: session?.profile?.name || targetSignup?.x_name || undefined,
+    xProfileImageUrl: session?.profile?.profileImageUrl || targetSignup?.x_profile_image_url || undefined,
+    walletAddress,
+    walletChainId: walletProof.walletChainId,
+    signedMessage: walletProof.signedMessage,
+    signature: walletProof.signature,
+    displayName: targetSignup?.display_name || "",
+    email: targetSignup?.email || "",
+    country: targetSignup?.country || "",
+    interest: targetSignup?.interest || "",
+    discordUsername: getOptionalSummaryValue(
+      socialSessions.discord?.profile?.legacyTag || socialSessions.discord?.profile?.username,
+      targetSignup?.discord_username || ""
+    ),
+    telegramUsername: getOptionalSummaryValue(
+      socialSessions.telegram?.profile?.username || socialSessions.telegram?.profile?.displayName,
+      targetSignup?.telegram_username || ""
+    ),
+    linkedinUrl: getOptionalSummaryValue(socialSessions.linkedin?.profile?.displayName, targetSignup?.linkedin_url || ""),
+    notes: targetSignup?.notes || "",
+    verificationJson: JSON.stringify(verification),
+    status: targetSignup?.status || "received",
+    userAgent: normalizeText(request.headers["user-agent"], 500),
+    ipAddress: normalizeText(getClientIp(request), 80),
+    submittedAt: now,
+    createdAt: targetSignup?.created_at || now,
+    updatedAt: now,
+    socialAccounts: mergedSocialAccounts
   };
 
   try {
-    const row = signupStore.saveSignup({
-      id: crypto.randomUUID(),
-      xUserId: session?.profile?.id || null,
-      xUsername: session?.profile?.username || "",
-      xName: session?.profile?.name || "",
-      xProfileImageUrl: session?.profile?.profileImageUrl || "",
-      walletAddress,
-      walletChainId: walletProof.walletChainId,
-      signedMessage: walletProof.signedMessage,
-      signature: walletProof.signature,
-      displayName: "",
-      email: "",
-      country: "",
-      interest: "",
-      discordUsername: socialSessions.discord?.profile?.legacyTag || socialSessions.discord?.profile?.username || "",
-      telegramUsername: socialSessions.telegram?.profile?.username || socialSessions.telegram?.profile?.displayName || "",
-      linkedinUrl: socialSessions.linkedin?.profile?.displayName || "",
-      notes: "",
-      verificationJson: JSON.stringify(verification),
-      status: "received",
-      userAgent: normalizeText(request.headers["user-agent"], 500),
-      ipAddress: normalizeText(getClientIp(request), 80),
-      submittedAt: now,
-      createdAt: now,
-      updatedAt: now,
-      socialAccounts: buildSignupSocialAccounts({
-        session,
-        socialSessions,
-        verification,
-        now
-      })
+    const row = targetSignup ? signupStore.updateSignup(signupInput) : signupStore.saveSignup({
+      ...signupInput,
+      xUserId: signupInput.xUserId || null,
+      xUsername: signupInput.xUsername || "",
+      xName: signupInput.xName || "",
+      xProfileImageUrl: signupInput.xProfileImageUrl || "",
+      discordUsername: signupInput.discordUsername || "",
+      telegramUsername: signupInput.telegramUsername || "",
+      linkedinUrl: signupInput.linkedinUrl || ""
     });
-    writeJson(response, 200, { signup: row });
+    if (row?.id) {
+      browserSession.authenticatedSignupId = row.id;
+      browserSession.authenticatedWalletAddress = walletAddress;
+      browserSession.updatedAt = now;
+    }
+    writeJson(response, 200, { signup: row, created: !targetSignup, updated: Boolean(targetSignup) });
   } catch (error) {
     if (String(error?.code || "") === "SQLITE_CONSTRAINT_UNIQUE") {
       throw new HttpError(409, "This wallet or connected social account has already been used for a signup.");
@@ -1009,7 +1151,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "GET" && pathname === "/api/x/session") {
       requireAllowedOrigin(request, response);
-      await handleSessionLookup(request, response);
+      await handleSessionLookup(request, response, requestUrl);
       return;
     }
 

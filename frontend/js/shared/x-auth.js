@@ -3,6 +3,7 @@ import { X_AUTH_SESSION_KEY } from "./constants.js";
 const SESSION_EXPIRY_WINDOW_MS = 60_000;
 const AUTH_COMPLETE_QUERY_PARAM = "x_auth";
 const AUTH_COMPLETE_QUERY_VALUE = "complete";
+const AUTH_COMPLETION_TOKEN_QUERY_PARAM = "x_completion";
 const AUTH_ERROR_QUERY_PARAM = "x_error";
 
 function getSessionStorage() {
@@ -65,7 +66,7 @@ function describeErrorPayload(payload) {
 
 function cleanupAuthQueryParams() {
   const currentUrl = new URL(window.location.href);
-  [AUTH_COMPLETE_QUERY_PARAM, AUTH_ERROR_QUERY_PARAM].forEach((key) => {
+  [AUTH_COMPLETE_QUERY_PARAM, AUTH_COMPLETION_TOKEN_QUERY_PARAM, AUTH_ERROR_QUERY_PARAM].forEach((key) => {
     currentUrl.searchParams.delete(key);
   });
   window.history.replaceState({}, document.title, currentUrl.toString());
@@ -184,8 +185,11 @@ function buildSession(result, profile, previousSession = null) {
   };
 }
 
-async function fetchBackendSession(backendUrl, { required = false } = {}) {
-  const response = await fetch(`${backendUrl}/api/x/session`, {
+async function fetchBackendSession(backendUrl, { required = false, completionToken = "" } = {}) {
+  const sessionUrl = new URL(`${backendUrl}/api/x/session`);
+  if (completionToken) sessionUrl.searchParams.set(AUTH_COMPLETION_TOKEN_QUERY_PARAM, completionToken);
+
+  const response = await fetch(sessionUrl.toString(), {
     credentials: "include",
     cache: "no-store",
   });
@@ -278,6 +282,7 @@ export async function logoutXSession(config = {}, session = getXSession()) {
 export async function completeXLoginIfPresent(config = {}) {
   const params = new URLSearchParams(window.location.search);
   const hasCompletionSignal = params.get(AUTH_COMPLETE_QUERY_PARAM) === AUTH_COMPLETE_QUERY_VALUE;
+  const completionToken = String(params.get(AUTH_COMPLETION_TOKEN_QUERY_PARAM) || "").trim();
   const authError = params.get(AUTH_ERROR_QUERY_PARAM);
   const handled = hasCompletionSignal || Boolean(authError);
   const previousSession = getXSession();
@@ -302,7 +307,10 @@ export async function completeXLoginIfPresent(config = {}) {
       };
     }
 
-    const authResult = await fetchBackendSession(xAuth.backendUrl, { required: hasCompletionSignal });
+    const authResult = await fetchBackendSession(xAuth.backendUrl, {
+      required: hasCompletionSignal,
+      completionToken,
+    });
     if (!authResult) {
       clearXSession();
       return {

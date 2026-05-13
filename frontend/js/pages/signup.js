@@ -107,13 +107,14 @@ function getVerifiedWalletAddress() {
   return normalizeAddress(runtime.walletProof?.walletAddress || runtime.walletProof?.address || "");
 }
 
-function hasVerifiedWallet() {
-  return Boolean(runtime.account && getVerifiedWalletAddress() === normalizeAddress(runtime.account));
+function hasConnectedWallet() {
+  return Boolean(runtime.account);
 }
 
 function hasRequiredSocialSession() {
   return Boolean(
-    runtime.telegramSession?.profile?.id
+    runtime.xSession?.profile?.id
+    || runtime.telegramSession?.profile?.id
     || runtime.discordSession?.profile?.id
     || runtime.linkedinSession?.profile?.id
   );
@@ -278,32 +279,25 @@ function toggleWalletMenu() {
 
 function syncWalletUi() {
   const hasWallet = Boolean(runtime.account);
-  const verifiedWallet = hasVerifiedWallet();
 
   if (runtime.isConnectingWallet) {
     els.connectButton.textContent = "Connecting...";
-  } else if (runtime.isVerifyingWallet) {
-    els.connectButton.textContent = "Signing...";
   } else if (!hasWallet) {
     els.connectButton.textContent = "Connect Wallet";
-  } else if (!verifiedWallet) {
-    els.connectButton.textContent = "Sign Wallet";
   } else {
     els.connectButton.textContent = "Wallet Options";
   }
 
-  els.connectButton.disabled = runtime.isConnectingWallet || runtime.isVerifyingWallet;
+  els.connectButton.disabled = runtime.isConnectingWallet || runtime.isSubmitting;
   els.walletMenuAddress.textContent = hasWallet ? formatAddressShort(runtime.account) : "-";
   els.walletMenuAddress.title = runtime.account || "";
   els.walletMenuChainId.textContent = runtime.chainName || (runtime.chainId ? String(runtime.chainId) : "-");
-  els.walletStatusRow.dataset.ready = verifiedWallet ? "true" : "false";
-  els.walletStatusText.textContent = verifiedWallet
-    ? `${formatAddressShort(runtime.account)} verified`
-    : hasWallet
-      ? `${formatAddressShort(runtime.account)} connected; signature needed`
-      : "Not connected";
+  els.walletStatusRow.dataset.ready = hasWallet ? "true" : "false";
+  els.walletStatusText.textContent = hasWallet
+    ? `${formatAddressShort(runtime.account)} connected; signature happens on submit`
+    : "Not connected";
 
-  if (!hasWallet || !verifiedWallet) {
+  if (!hasWallet) {
     setWalletMenuOpen(false);
   }
 }
@@ -312,9 +306,6 @@ function syncXSessionFromStorage() {
   const session = getXSession();
   runtime.xSession = session && !isXSessionExpired(session) ? session : null;
   if (session && !runtime.xSession) clearXSession();
-  if (runtime.xSession?.existingSignup) {
-    applyExistingSignup(runtime.xSession.existingSignup, "X account");
-  }
 }
 
 function syncXUi() {
@@ -322,7 +313,7 @@ function syncXUi() {
   const profile = runtime.xSession?.profile || null;
   const signedIn = Boolean(profile?.username);
   els.xStatusRow.dataset.ready = signedIn ? "true" : "false";
-  els.xStatusText.textContent = signedIn ? `@${profile.username}` : configured ? "Optional X sign-in" : "X sign-in is not configured";
+  els.xStatusText.textContent = signedIn ? `@${profile.username} connected` : configured ? "Connect your X account." : "X sign-in is not configured";
   els.xAuthButton.hidden = signedIn;
   els.xAuthButton.disabled = runtime.isConnectingX || !configured;
   els.xAuthButton.textContent = runtime.isConnectingX ? "Opening X..." : "Sign in with X";
@@ -378,11 +369,11 @@ function syncExistingSignupUi() {
 }
 
 function syncSubmitUi() {
-  const walletReady = hasVerifiedWallet();
+  const walletReady = hasConnectedWallet();
   const requiredSocialReady = hasRequiredSocialSession();
   const ready = walletReady && requiredSocialReady && !runtime.conflictMessage;
   els.submitButton.disabled = !ready || runtime.isSubmitting;
-  els.submitButton.textContent = runtime.isSubmitting ? "Submitting..." : runtime.existingSignup ? "Save Signup" : "Submit Signup";
+  els.submitButton.textContent = runtime.isSubmitting ? "Signing..." : runtime.existingSignup ? "Update & Sign" : "Submit & Sign";
 
   if (runtime.conflictMessage) {
     els.proofHint.textContent = runtime.conflictMessage;
@@ -393,19 +384,19 @@ function syncSubmitUi() {
     els.submissionStatus.textContent = "Loaded";
     els.submissionStatus.dataset.tone = "ready";
   } else if (ready) {
-    els.proofHint.textContent = "Required checks complete. Submit to save this signup.";
+    els.proofHint.textContent = "Ready to submit. Nothing is saved until you click Submit & Sign.";
     els.submissionStatus.textContent = "Ready";
     els.submissionStatus.dataset.tone = "ready";
   } else if (!walletReady) {
-    els.proofHint.textContent = "Verify wallet ownership before submitting.";
+    els.proofHint.textContent = "Nothing is saved yet. Connect a wallet before submitting.";
     els.submissionStatus.textContent = "Draft";
     els.submissionStatus.dataset.tone = "neutral";
   } else if (!requiredSocialReady) {
-    els.proofHint.textContent = "Connect Telegram, Discord, or LinkedIn before submitting.";
+    els.proofHint.textContent = "Nothing is saved yet. Connect X, Telegram, Discord, or LinkedIn before submitting.";
     els.submissionStatus.textContent = "Draft";
     els.submissionStatus.dataset.tone = "neutral";
   } else {
-    els.proofHint.textContent = "Verify wallet and connect one required social account before submitting.";
+    els.proofHint.textContent = "Nothing is saved yet. Complete the required checklist items before submitting.";
     els.submissionStatus.textContent = "Draft";
     els.submissionStatus.dataset.tone = "neutral";
   }
@@ -419,43 +410,25 @@ function syncUi() {
   syncSubmitUi();
 }
 
-async function verifyWalletOwnership() {
+async function createWalletSignature() {
   if (!runtime.account || !runtime.signer) {
     throw new Error("Connect a wallet first.");
   }
 
-  runtime.isVerifyingWallet = true;
-  syncUi();
-
-  try {
-    const challenge = await apiFetch(runtime.config, "/api/signup/challenge", {
-      method: "POST",
-      body: JSON.stringify({
-        walletAddress: runtime.account,
-        chainId: runtime.chainId
-      })
-    });
-    const signature = await runtime.signer.signMessage(challenge.message);
-    const result = await apiFetch(runtime.config, "/api/signup/wallet/verify", {
-      method: "POST",
-      body: JSON.stringify({
-        challengeId: challenge.challengeId,
-        walletAddress: runtime.account,
-        signature
-      })
-    });
-
-    runtime.walletProof = {
-      walletAddress: result.wallet.address,
-      chainId: result.wallet.chainId,
-      verifiedAt: result.wallet.verifiedAt
-    };
-    applyExistingSignup(result.existingSignup, "wallet");
-    showMessage("Wallet ownership verified.", "success");
-  } finally {
-    runtime.isVerifyingWallet = false;
-    syncUi();
-  }
+  const walletAddress = normalizeAddress(runtime.account);
+  const challenge = await apiFetch(runtime.config, "/api/signup/challenge", {
+    method: "POST",
+    body: JSON.stringify({
+      walletAddress,
+      chainId: runtime.chainId
+    })
+  });
+  const signature = await runtime.signer.signMessage(challenge.message);
+  return {
+    challengeId: challenge.challengeId,
+    walletAddress,
+    signature
+  };
 }
 
 async function connectSelectedWallet() {
@@ -476,22 +449,22 @@ async function connectSelectedWallet() {
     runtime.isConnectingWallet = false;
     syncUi();
   }
-
-  await verifyWalletOwnership();
 }
 
 async function submitSignup() {
-  if (!hasVerifiedWallet()) {
-    throw new Error("Verify wallet ownership first.");
+  if (!hasConnectedWallet()) {
+    throw new Error("Connect a wallet first.");
   }
   if (!hasRequiredSocialSession()) {
-    throw new Error("Connect Telegram, Discord, or LinkedIn first.");
+    throw new Error("Connect X, Telegram, Discord, or LinkedIn first.");
   }
 
   runtime.isSubmitting = true;
+  runtime.isVerifyingWallet = true;
   syncUi();
 
   try {
+    const walletSignature = await createWalletSignature();
     const headers = runtime.xSession?.csrfToken
       ? { "X-CSRF-Token": runtime.xSession.csrfToken }
       : {};
@@ -499,14 +472,23 @@ async function submitSignup() {
       method: "POST",
       headers,
       body: JSON.stringify({
-        walletAddress: getVerifiedWalletAddress(),
+        walletAddress: walletSignature.walletAddress,
+        challengeId: walletSignature.challengeId,
+        signature: walletSignature.signature,
         coinMarketCapOpened: runtime.coinMarketCapOpened
       })
     });
 
     applyExistingSignup(result.signup, "submitted signup");
-    showMessage(result.existing ? "Existing signup loaded." : `Signup received for @${result.signup.xUsername}.`, "success");
+    runtime.walletProof = {
+      walletAddress: walletSignature.walletAddress,
+      chainId: runtime.chainId,
+      verifiedAt: new Date().toISOString()
+    };
+    const savedName = result.signup?.xUsername ? `@${result.signup.xUsername}` : formatAddressShort(result.signup?.walletAddress || walletSignature.walletAddress);
+    showMessage(result.updated ? "Signup updated." : `Signup received for ${savedName}.`, "success");
   } finally {
+    runtime.isVerifyingWallet = false;
     runtime.isSubmitting = false;
     syncUi();
   }
@@ -551,10 +533,6 @@ function bindEvents() {
     try {
       if (!runtime.account) {
         await connectSelectedWallet();
-        return;
-      }
-      if (!hasVerifiedWallet()) {
-        await verifyWalletOwnership();
         return;
       }
       toggleWalletMenu();
@@ -678,9 +656,6 @@ async function init() {
   try {
     const result = await completeXLoginIfPresent(runtime.config);
     runtime.xSession = result.session || runtime.xSession;
-    if (runtime.xSession?.existingSignup) {
-      applyExistingSignup(runtime.xSession.existingSignup, "X account");
-    }
     if (result.handled && runtime.xSession) {
       saveXSession(runtime.xSession);
       showMessage("X account connected.", "success");

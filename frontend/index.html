@@ -4,13 +4,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Liberdus Social Rewards Signup</title>
-    <meta name="description" content="Sign up for Liberdus social rewards with wallet ownership and X account verification.">
+    <meta name="description" content="Sign up for Liberdus social rewards with wallet ownership and social account verification.">
     <meta name="theme-color" content="#071542">
     <link rel="icon" type="image/png" href="./assets/liberdus-logo.png">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Liberdus">
     <meta property="og:title" content="Liberdus Social Rewards Signup">
-    <meta property="og:description" content="Verify your wallet and X account for future Liberdus rewards.">
+    <meta property="og:description" content="Verify your wallet and social account for future Liberdus rewards.">
     <meta property="og:image" content="./assets/signup-social-card.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -47,7 +47,7 @@
           <div>
             <p class="eyebrow">Rewards signup</p>
             <h2>Account Checklist</h2>
-            <p class="hint">Verify your wallet and connect at least one of Telegram, Discord, or LinkedIn.</p>
+            <p class="hint">Connect your wallet and at least one of X, Telegram, Discord, or LinkedIn. Your wallet signature happens when you submit.</p>
           </div>
           <p id="submissionStatus" class="status-chip" data-tone="neutral">Draft</p>
         </div>
@@ -88,7 +88,7 @@
             <div class="checklist-copy">
               <div class="checklist-title-row">
                 <h3>X account</h3>
-                <span class="optional-pill">Optional</span>
+                <span class="choice-pill">One required</span>
               </div>
               <p id="xStatusText">Not signed in</p>
             </div>
@@ -103,8 +103,8 @@
         </div>
 
         <div class="checklist-submit-bar">
-          <p id="proofHint" class="hint">Verify wallet and connect Telegram, Discord, or LinkedIn before submitting.</p>
-          <button id="submitButton" type="button">Submit Signup</button>
+          <p id="proofHint" class="hint">Nothing is saved until you submit and sign with your wallet.</p>
+          <button id="submitButton" type="button">Submit & Sign</button>
         </div>
       </section>
     </main>

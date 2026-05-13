@@ -175,6 +175,34 @@ function createSignupStore(db) {
     )
   `);
 
+  const updateSignupStatement = db.prepare(`
+    UPDATE signups
+    SET
+      x_user_id = @xUserId,
+      x_username = @xUsername,
+      x_name = @xName,
+      x_profile_image_url = @xProfileImageUrl,
+      wallet_address = @walletAddress,
+      wallet_chain_id = @walletChainId,
+      signed_message = @signedMessage,
+      signature = @signature,
+      display_name = @displayName,
+      email = @email,
+      country = @country,
+      interest = @interest,
+      discord_username = @discordUsername,
+      telegram_username = @telegramUsername,
+      linkedin_url = @linkedinUrl,
+      notes = @notes,
+      verification_json = @verificationJson,
+      status = @status,
+      user_agent = @userAgent,
+      ip_address = @ipAddress,
+      submitted_at = @submittedAt,
+      updated_at = @updatedAt
+    WHERE id = @id
+  `);
+
   const insertSocialAccount = db.prepare(`
     INSERT INTO signup_social_accounts (
       id,
@@ -247,6 +275,15 @@ function createSignupStore(db) {
   const countAll = db.prepare("SELECT COUNT(*) AS count FROM signups");
   const countSocialAccounts = db.prepare("SELECT COUNT(*) AS count FROM signup_social_accounts");
   const countSocialVerifications = db.prepare("SELECT COUNT(*) AS count FROM signup_social_verifications");
+  const deleteSocialVerificationsBySignupId = db.prepare(`
+    DELETE FROM signup_social_verifications
+    WHERE social_account_id IN (
+      SELECT id
+      FROM signup_social_accounts
+      WHERE signup_id = ?
+    )
+  `);
+  const deleteSocialAccountsBySignupId = db.prepare("DELETE FROM signup_social_accounts WHERE signup_id = ?");
 
   function getSerializedSignup(row) {
     if (!row) return null;
@@ -308,6 +345,38 @@ function createSignupStore(db) {
 
   function saveSignup(input) {
     return getSerializedSignup(saveSignupTransaction(input));
+  }
+
+  const updateSignupTransaction = db.transaction((input) => {
+    const { socialAccounts = [], ...signupInput } = input;
+    updateSignupStatement.run({
+      ...signupInput,
+      xUserId: signupInput.xUserId || null,
+      xUsername: signupInput.xUsername || "",
+      xName: signupInput.xName || "",
+      xProfileImageUrl: signupInput.xProfileImageUrl || "",
+      displayName: signupInput.displayName || "",
+      email: signupInput.email || "",
+      country: signupInput.country || "",
+      interest: signupInput.interest || "",
+      discordUsername: signupInput.discordUsername || "",
+      telegramUsername: signupInput.telegramUsername || "",
+      linkedinUrl: signupInput.linkedinUrl || "",
+      notes: signupInput.notes || ""
+    });
+    deleteSocialVerificationsBySignupId.run(input.id);
+    deleteSocialAccountsBySignupId.run(input.id);
+    saveSocialAccounts(input.id, socialAccounts);
+    return getById.get(input.id);
+  });
+
+  function updateSignup(input) {
+    return getSerializedSignup(updateSignupTransaction(input));
+  }
+
+  function findById(id) {
+    const value = String(id || "").trim();
+    return value ? getById.get(value) || null : null;
   }
 
   function findByXUserId(xUserId) {
@@ -412,6 +481,8 @@ function createSignupStore(db) {
 
   return {
     saveSignup,
+    updateSignup,
+    findById,
     findByXUserId,
     findByWalletAddress,
     findBySocialAccount,
