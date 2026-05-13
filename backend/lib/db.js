@@ -263,6 +263,13 @@ function backfillSocialSchema(db) {
     )
   `);
   const getAccountById = db.prepare("SELECT id FROM signup_social_accounts WHERE id = ?");
+  const getVerificationByAccountCheck = db.prepare(`
+    SELECT id
+    FROM signup_social_verifications
+    WHERE social_account_id = ?
+      AND check_type = ?
+    LIMIT 1
+  `);
 
   const rows = db.prepare("SELECT * FROM signups").all();
   for (const row of rows) {
@@ -420,6 +427,7 @@ function backfillSocialSchema(db) {
       if (!getAccountById.get(accountId)) continue;
 
       for (const verificationEvent of account.verifications || []) {
+        if (getVerificationByAccountCheck.get(accountId, verificationEvent.checkType)) continue;
         insertVerification.run({
           id: `${accountId}:${verificationEvent.checkType}`,
           socialAccountId: accountId,

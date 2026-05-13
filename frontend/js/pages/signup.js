@@ -41,6 +41,7 @@ const runtime = {
   isConnectingTelegram: false,
   isConnectingLinkedIn: false,
   isConnectingGitHub: false,
+  isLoadingSignup: false,
   isSubmitting: false,
   xSession: null,
   discordSession: null,
@@ -64,6 +65,7 @@ const els = {
   walletMenu: document.getElementById("walletMenu"),
   walletMenuAddress: document.getElementById("walletMenuAddress"),
   walletMenuChainId: document.getElementById("walletMenuChainId"),
+  loadSignupButton: document.getElementById("loadSignupButton"),
   copyWalletAddressButton: document.getElementById("copyWalletAddressButton"),
   disconnectButton: document.getElementById("disconnectButton"),
   walletStatusRow: document.getElementById("walletStatusRow"),
@@ -87,6 +89,7 @@ const els = {
 };
 
 const providerElements = new Map();
+const REQUIRED_SOCIAL_PROVIDER_IDS = new Set(["x", "discord", "telegram", "linkedin"]);
 
 const toast = createToastController({
   element: els.signupToast,
@@ -111,13 +114,64 @@ function hasConnectedWallet() {
   return Boolean(runtime.account);
 }
 
+function getSavedSocialAccount(providerId) {
+  const normalizedProvider = String(providerId || "").trim().toLowerCase();
+  const signup = runtime.existingSignup;
+  if (!normalizedProvider || !signup?.id) return null;
+
+  const account = (signup.socialAccounts || [])
+    .find((socialAccount) => socialAccount?.provider === normalizedProvider && socialAccount.providerUserId);
+  if (account) return account;
+
+  if (normalizedProvider === "x" && signup.xUserId) {
+    return {
+      provider: "x",
+      providerUserId: signup.xUserId,
+      username: signup.xUsername,
+      displayName: signup.xName || signup.xUsername
+    };
+  }
+
+  return null;
+}
+
+function hasSavedSocialProvider(providerId) {
+  return Boolean(getSavedSocialAccount(providerId));
+}
+
+function hasPassedSavedVerification(account, checkType) {
+  return (account?.verifications || []).some((verification) => (
+    verification?.checkType === checkType && verification.status === "passed"
+  ));
+}
+
+function isSavedProviderReady(providerId, account) {
+  if (!account) return false;
+  if (REQUIRED_SOCIAL_PROVIDER_IDS.has(providerId)) return true;
+  if (providerId === "github") return hasPassedSavedVerification(account, "github_repo_starred");
+  if (providerId === "youtube") return hasPassedSavedVerification(account, "youtube_channel_subscribed");
+  return true;
+}
+
 function hasRequiredSocialSession() {
   return Boolean(
     runtime.xSession?.profile?.id
     || runtime.telegramSession?.profile?.id
     || runtime.discordSession?.profile?.id
     || runtime.linkedinSession?.profile?.id
+    || [...REQUIRED_SOCIAL_PROVIDER_IDS].some(hasSavedSocialProvider)
   );
+}
+
+function isExistingSignupForCurrentWallet() {
+  if (!runtime.existingSignup?.walletAddress || !runtime.account) return false;
+  return normalizeAddress(runtime.existingSignup.walletAddress) === normalizeAddress(runtime.account);
+}
+
+function clearLoadedSignupIfWalletChanged() {
+  if (!runtime.existingSignup || isExistingSignupForCurrentWallet()) return;
+  runtime.existingSignup = null;
+  runtime.walletProof = null;
 }
 
 function setConflict(message) {
@@ -267,6 +321,19 @@ function updateProviderLinks(provider, elements) {
   }
 }
 
+function getSavedAccountName(account, fallback = "account") {
+  if (!account) return fallback;
+  if (account.provider === "x" && account.username) return `@${account.username}`;
+  if (account.provider === "telegram" && account.username) return `@${account.username}`;
+  if (account.provider === "github" && account.username) return `@${account.username}`;
+  return account.displayName || account.username || fallback;
+}
+
+function getSavedProviderStatusText(provider, account) {
+  const name = getSavedAccountName(account, provider.title);
+  return `${name} saved from this wallet's existing signup`;
+}
+
 function setWalletMenuOpen(isOpen) {
   if (!els.walletMenu) return;
   els.walletMenu.hidden = !isOpen;
@@ -279,6 +346,8 @@ function toggleWalletMenu() {
 
 function syncWalletUi() {
   const hasWallet = Boolean(runtime.account);
+  clearLoadedSignupIfWalletChanged();
+  const loadedForWallet = isExistingSignupForCurrentWallet();
 
   if (runtime.isConnectingWallet) {
     els.connectButton.textContent = "Connecting...";
@@ -289,13 +358,20 @@ function syncWalletUi() {
   }
 
   els.connectButton.disabled = runtime.isConnectingWallet || runtime.isSubmitting;
+  els.loadSignupButton.hidden = !hasWallet || loadedForWallet;
+  els.loadSignupButton.disabled = runtime.isLoadingSignup || runtime.isSubmitting;
+  els.loadSignupButton.textContent = runtime.isLoadingSignup ? "Loading..." : "Load saved";
   els.walletMenuAddress.textContent = hasWallet ? formatAddressShort(runtime.account) : "-";
   els.walletMenuAddress.title = runtime.account || "";
   els.walletMenuChainId.textContent = runtime.chainName || (runtime.chainId ? String(runtime.chainId) : "-");
   els.walletStatusRow.dataset.ready = hasWallet ? "true" : "false";
-  els.walletStatusText.textContent = hasWallet
-    ? `${formatAddressShort(runtime.account)} connected; signature happens on submit`
-    : "Not connected";
+  if (!hasWallet) {
+    els.walletStatusText.textContent = "Not connected";
+  } else if (loadedForWallet) {
+    els.walletStatusText.textContent = `${formatAddressShort(runtime.account)} connected; saved signup loaded`;
+  } else {
+    els.walletStatusText.textContent = `${formatAddressShort(runtime.account)} connected; load saved accounts or submit with a social sign-in`;
+  }
 
   if (!hasWallet) {
     setWalletMenuOpen(false);
@@ -311,9 +387,15 @@ function syncXSessionFromStorage() {
 function syncXUi() {
   const configured = isXAuthConfigured(runtime.config);
   const profile = runtime.xSession?.profile || null;
+  const savedAccount = getSavedSocialAccount("x");
   const signedIn = Boolean(profile?.username);
-  els.xStatusRow.dataset.ready = signedIn ? "true" : "false";
-  els.xStatusText.textContent = signedIn ? `@${profile.username} connected` : configured ? "Connect your X account." : "X sign-in is not configured";
+  const ready = signedIn || Boolean(savedAccount);
+  els.xStatusRow.dataset.ready = ready ? "true" : "false";
+  els.xStatusText.textContent = signedIn
+    ? `@${profile.username} connected`
+    : savedAccount
+      ? getSavedProviderStatusText({ title: "X" }, savedAccount)
+      : configured ? "Connect your X account." : "X sign-in is not configured";
   els.xAuthButton.hidden = signedIn;
   els.xAuthButton.disabled = runtime.isConnectingX || !configured;
   els.xAuthButton.textContent = runtime.isConnectingX ? "Opening X..." : "Sign in with X";
@@ -326,17 +408,29 @@ function syncOptionalRows() {
     if (!elements) continue;
 
     const session = provider.sessionKey ? runtime[provider.sessionKey] : null;
+    const savedAccount = getSavedSocialAccount(provider.id);
     const configured = provider.isConfigured ? provider.isConfigured(runtime.config) : true;
-    const ready = provider.isReady ? provider.isReady(session, runtime) : false;
+    const ready = provider.isReady
+      ? provider.isReady(session, runtime) || isSavedProviderReady(provider.id, savedAccount)
+      : isSavedProviderReady(provider.id, savedAccount);
     const connecting = provider.connectingKey ? Boolean(runtime[provider.connectingKey]) : false;
 
     elements.row.dataset.ready = ready ? "true" : "false";
-    elements.statusText.textContent = provider.getStatusText({
-      session,
-      runtime,
-      config: runtime.config,
-      configured
-    });
+    elements.statusText.textContent = session
+      ? provider.getStatusText({
+          session,
+          runtime,
+          config: runtime.config,
+          configured
+        })
+      : savedAccount
+        ? getSavedProviderStatusText(provider, savedAccount)
+        : provider.getStatusText({
+            session,
+            runtime,
+            config: runtime.config,
+            configured
+          });
 
     updateProviderLinks(provider, elements);
 
@@ -362,7 +456,12 @@ function syncExistingSignupUi() {
   }
 
   const wallet = signup.walletAddress ? formatAddressShort(signup.walletAddress) : "no wallet";
-  const username = signup.xUsername ? `@${signup.xUsername}` : "unknown X";
+  const requiredProvider = ["x", "discord", "telegram", "linkedin"]
+    .map((providerId) => getSavedSocialAccount(providerId))
+    .find(Boolean);
+  const username = requiredProvider
+    ? `${requiredProvider.provider}: ${getSavedAccountName(requiredProvider)}`
+    : "no required social";
   const status = signup.status || "received";
   const summary = `${username} with ${wallet}, status ${status}`;
   els.existingSignupText.textContent = summary;
@@ -380,7 +479,7 @@ function syncSubmitUi() {
     els.submissionStatus.textContent = "Conflict";
     els.submissionStatus.dataset.tone = "error";
   } else if (runtime.existingSignup) {
-    els.proofHint.textContent = "Existing signup loaded. Account replacement will require an explicit confirmation flow.";
+    els.proofHint.textContent = "Existing signup loaded. Submit and sign to save updates.";
     els.submissionStatus.textContent = "Loaded";
     els.submissionStatus.dataset.tone = "ready";
   } else if (ready) {
@@ -392,7 +491,7 @@ function syncSubmitUi() {
     els.submissionStatus.textContent = "Draft";
     els.submissionStatus.dataset.tone = "neutral";
   } else if (!requiredSocialReady) {
-    els.proofHint.textContent = "Nothing is saved yet. Connect X, Telegram, Discord, or LinkedIn before submitting.";
+    els.proofHint.textContent = "Nothing is saved yet. Connect X, Telegram, Discord, or LinkedIn, or load a saved signup for this wallet.";
     els.submissionStatus.textContent = "Draft";
     els.submissionStatus.dataset.tone = "neutral";
   } else {
@@ -429,6 +528,46 @@ async function createWalletSignature() {
     walletAddress,
     signature
   };
+}
+
+async function loadExistingSignupForWallet() {
+  if (!hasConnectedWallet()) {
+    throw new Error("Connect a wallet first.");
+  }
+
+  runtime.isLoadingSignup = true;
+  runtime.isVerifyingWallet = true;
+  syncUi();
+
+  try {
+    const walletSignature = await createWalletSignature();
+    const result = await apiFetch(runtime.config, "/api/signup/wallet/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        walletAddress: walletSignature.walletAddress,
+        challengeId: walletSignature.challengeId,
+        signature: walletSignature.signature
+      })
+    });
+
+    runtime.walletProof = {
+      walletAddress: result.wallet?.address || walletSignature.walletAddress,
+      chainId: result.wallet?.chainId || runtime.chainId,
+      verifiedAt: result.wallet?.verifiedAt || new Date().toISOString()
+    };
+
+    if (result.existingSignup?.id) {
+      applyExistingSignup(result.existingSignup, "wallet");
+      showMessage("Saved signup loaded.", "success");
+    } else {
+      runtime.existingSignup = null;
+      showMessage("No saved signup exists for this wallet yet.");
+    }
+  } finally {
+    runtime.isVerifyingWallet = false;
+    runtime.isLoadingSignup = false;
+    syncUi();
+  }
 }
 
 async function connectSelectedWallet() {
@@ -545,11 +684,17 @@ function bindEvents() {
     try {
       await disconnectWallet(runtime);
       runtime.walletProof = null;
+      runtime.existingSignup = null;
+      runtime.conflictMessage = "";
       syncUi();
       showMessage("Wallet disconnected.");
     } catch (error) {
       reportError(error, "Disconnect wallet");
     }
+  });
+
+  els.loadSignupButton.addEventListener("click", () => {
+    loadExistingSignupForWallet().catch((error) => reportError(error, "Load saved signup"));
   });
 
   els.copyWalletAddressButton.addEventListener("click", async () => {
@@ -626,6 +771,8 @@ function bindEvents() {
       await syncWalletState(runtime);
       if (previousProofAddress !== normalizeAddress(runtime.account)) {
         runtime.walletProof = null;
+        runtime.existingSignup = null;
+        runtime.conflictMessage = "";
       }
       syncUi();
     },

@@ -867,7 +867,7 @@ function buildCurrentVerification({ session, socialSessions, walletProof, coinMa
 function mergeVerification(existingSignup, currentVerification, { hasXSession }) {
   if (!existingSignup) return currentVerification;
   const existing = parseJsonObject(existingSignup.verification_json);
-  return {
+  const merged = {
     ...existing,
     ...currentVerification,
     x: hasXSession ? currentVerification.x : existing.x || currentVerification.x,
@@ -877,6 +877,14 @@ function mergeVerification(existingSignup, currentVerification, { hasXSession })
       opened: Boolean(existing.coinMarketCap?.opened || currentVerification.coinMarketCap?.opened)
     }
   };
+
+  for (const provider of ["discord", "telegram", "linkedin", "github", "youtube"]) {
+    if (!currentVerification[provider]?.connected && existing[provider]) {
+      merged[provider] = existing[provider];
+    }
+  }
+
+  return merged;
 }
 
 function mergeSocialAccounts(existingAccounts = [], currentAccounts = []) {
