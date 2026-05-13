@@ -802,11 +802,20 @@ function bindEvents() {
   bindWalletEvents({
     onAccountsChanged: async () => {
       const previousProofAddress = getVerifiedWalletAddress();
+      const previousAccount = normalizeAddress(runtime.account);
+      const hadLoadedSignup = Boolean(runtime.existingSignup);
       await syncWalletState(runtime);
-      if (previousProofAddress !== normalizeAddress(runtime.account)) {
+      const nextAccount = normalizeAddress(runtime.account);
+      if (previousProofAddress !== nextAccount) {
         runtime.walletProof = null;
         runtime.existingSignup = null;
         runtime.conflictMessage = "";
+      }
+      if (previousAccount && nextAccount && previousAccount !== nextAccount) {
+        showMessage(hadLoadedSignup
+          ? `Wallet changed to ${formatAddressShort(nextAccount)}. Saved signup state cleared.`
+          : `Wallet changed to ${formatAddressShort(nextAccount)}.`
+        );
       }
       syncUi();
     },
