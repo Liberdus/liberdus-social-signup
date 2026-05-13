@@ -198,6 +198,12 @@ function getConfiguredHref(link) {
   return links[link.hrefKey] || links[link.fallbackHrefKey] || link.defaultHref || "#";
 }
 
+function setActionLinkDisabled(anchor, disabled) {
+  if (!anchor) return;
+  anchor.setAttribute("aria-disabled", disabled ? "true" : "false");
+  anchor.tabIndex = disabled ? -1 : 0;
+}
+
 function createProviderLink(provider, link) {
   const anchor = document.createElement("a");
   anchor.className = "secondary nav-button checklist-link";
@@ -208,11 +214,20 @@ function createProviderLink(provider, link) {
   anchor.dataset.providerId = provider.id;
   anchor.dataset.hrefKey = link.hrefKey || "";
   anchor.dataset.fallbackHrefKey = link.fallbackHrefKey || "";
-  if (provider.onLinkClick) {
-    anchor.addEventListener("click", () => {
+  anchor.addEventListener("click", (event) => {
+    if (anchor.getAttribute("aria-disabled") === "true") {
+      event.preventDefault();
+      showMessage("Connect a wallet first.", "error");
+      return;
+    }
+
+    if (provider.onLinkClick) {
       provider.onLinkClick({ runtime, link });
       syncUi();
-    });
+    }
+  });
+  if (provider.onLinkClick) {
+    anchor.dataset.tracksClick = "true";
   }
   return anchor;
 }
@@ -313,6 +328,7 @@ function updateProviderLinks(provider, elements) {
       fallbackHrefKey: anchor.dataset.fallbackHrefKey,
       defaultHref: anchor.href
     });
+    setActionLinkDisabled(anchor, !hasConnectedWallet());
   }
 
   const footerAnchor = els.footerSocialLinks.querySelector(`[data-provider-id="${provider.id}"]`);
@@ -386,6 +402,7 @@ function syncXSessionFromStorage() {
 
 function syncXUi() {
   const configured = isXAuthConfigured(runtime.config);
+  const walletReady = hasConnectedWallet();
   const profile = runtime.xSession?.profile || null;
   const savedAccount = getSavedSocialAccount("x");
   const signedIn = Boolean(profile?.username);
@@ -397,9 +414,11 @@ function syncXUi() {
       ? getSavedProviderStatusText({ title: "X" }, savedAccount)
       : configured ? "Connect your X account." : "X sign-in is not configured";
   els.xAuthButton.hidden = signedIn;
-  els.xAuthButton.disabled = runtime.isConnectingX || !configured;
-  els.xAuthButton.textContent = runtime.isConnectingX ? "Opening X..." : "Sign in with X";
+  els.xAuthButton.disabled = !walletReady || runtime.isConnectingX || !configured;
+  els.xAuthButton.textContent = runtime.isConnectingX ? "Opening X..." : savedAccount ? "Change" : "Sign in with X";
   els.xDisconnectButton.hidden = !signedIn;
+  els.xDisconnectButton.disabled = !walletReady;
+  setActionLinkDisabled(els.xChecklistLink, !walletReady);
 }
 
 function syncOptionalRows() {
@@ -407,6 +426,7 @@ function syncOptionalRows() {
     const elements = providerElements.get(provider.id);
     if (!elements) continue;
 
+    const walletReady = hasConnectedWallet();
     const session = provider.sessionKey ? runtime[provider.sessionKey] : null;
     const savedAccount = getSavedSocialAccount(provider.id);
     const configured = provider.isConfigured ? provider.isConfigured(runtime.config) : true;
@@ -435,14 +455,18 @@ function syncOptionalRows() {
     updateProviderLinks(provider, elements);
 
     if (elements.authButton) {
-      elements.authButton.hidden = ready;
-      elements.authButton.disabled = connecting || !configured;
-      elements.authButton.textContent = provider.getAuthButtonText
-        ? provider.getAuthButtonText({ connecting, session, runtime, config: runtime.config })
-        : connecting ? "Opening..." : "Sign in";
+      const activeReady = session && provider.isReady ? provider.isReady(session, runtime) : false;
+      elements.authButton.hidden = Boolean(activeReady);
+      elements.authButton.disabled = !walletReady || connecting || !configured;
+      elements.authButton.textContent = !session && savedAccount
+        ? "Change"
+        : provider.getAuthButtonText
+          ? provider.getAuthButtonText({ connecting, session, runtime, config: runtime.config })
+          : connecting ? "Opening..." : "Sign in";
     }
     if (elements.disconnectButton) {
       elements.disconnectButton.hidden = !session;
+      elements.disconnectButton.disabled = !walletReady;
     }
   }
 }
@@ -716,6 +740,12 @@ function bindEvents() {
       syncUi();
       reportError(error, "Start X sign-in");
     }
+  });
+
+  els.xChecklistLink.addEventListener("click", (event) => {
+    if (els.xChecklistLink.getAttribute("aria-disabled") !== "true") return;
+    event.preventDefault();
+    showMessage("Connect a wallet first.", "error");
   });
 
   els.xDisconnectButton.addEventListener("click", async () => {
