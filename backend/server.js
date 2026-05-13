@@ -2,6 +2,7 @@ const http = require("node:http");
 const path = require("node:path");
 
 const dotenv = require("dotenv");
+const { createAdminController } = require("./lib/admin-controller");
 const { openDatabase, getDatabasePath } = require("./lib/db");
 const { createHttpUtils } = require("./lib/http-utils");
 const { createSignupController } = require("./lib/signup-controller");
@@ -14,7 +15,6 @@ const HOST = process.env.SIGNUP_HOST || "127.0.0.1";
 const PORT = Number.parseInt(process.env.SIGNUP_PORT || "8788", 10);
 const DEFAULT_ALLOWED_ORIGIN = "http://127.0.0.1:5503";
 const DEFAULT_FRONTEND_RETURN_URL = "http://127.0.0.1:5503/frontend/";
-const ADMIN_SESSION_TTL_MS = 60 * 60 * 1000;
 const MAX_JSON_BODY_BYTES = 64 * 1024;
 
 const {
@@ -44,7 +44,7 @@ const {
   maxJsonBodyBytes: MAX_JSON_BODY_BYTES
 });
 
-const adminSessions = new Map();
+let adminController;
 let socialProviders;
 let signupController;
 
@@ -59,9 +59,7 @@ function pruneExpiredState() {
   const now = Date.now();
   socialProviders?.pruneExpired(now);
   signupController?.pruneExpired(now);
-  for (const [key, session] of adminSessions.entries()) {
-    if (session.expiresAtMs <= now) adminSessions.delete(key);
-  }
+  adminController?.pruneExpired(now);
 }
 
 function getVerificationStatus(isPassed, isConfigured = true) {
@@ -98,70 +96,15 @@ signupController = createSignupController({
   socialProviders
 });
 
-function getAdminCredentials() {
-  return {
-    username: String(process.env.ADMIN_USERNAME || "admin"),
-    password: String(process.env.ADMIN_PASSWORD || "")
-  };
-}
-
-function getRequiredAdminSession(request) {
-  pruneExpiredState();
-  const token = String(request.headers["x-admin-token"] || "").trim();
-  const session = token ? adminSessions.get(token) : null;
-  if (!session) throw new HttpError(401, "Admin login is required.");
-  return session;
-}
-
-async function handleAdminLogin(request, response) {
-  const credentials = getAdminCredentials();
-  if (!credentials.password) {
-    throw new HttpError(500, "ADMIN_PASSWORD is not configured.", { expose: false });
-  }
-  const body = await readJsonRequest(request);
-  if (!secureEquals(body.username, credentials.username) || !secureEquals(body.password, credentials.password)) {
-    throw new HttpError(401, "Admin username or password is incorrect.");
-  }
-  const token = createRandomToken();
-  adminSessions.set(token, {
-    token,
-    createdAt: new Date().toISOString(),
-    expiresAtMs: Date.now() + ADMIN_SESSION_TTL_MS
-  });
-  writeJson(response, 200, {
-    adminToken: token,
-    expiresAt: Date.now() + ADMIN_SESSION_TTL_MS
-  });
-}
-
-async function handleAdminLogout(request, response) {
-  const token = String(request.headers["x-admin-token"] || "").trim();
-  if (token) adminSessions.delete(token);
-  writeJson(response, 200, { ok: true });
-}
-
-function handleAdminSignupList(request, response, requestUrl) {
-  getRequiredAdminSession(request);
-  const result = signupStore.listSignups({
-    search: requestUrl.searchParams.get("search") || "",
-    limit: requestUrl.searchParams.get("limit") || "50",
-    offset: requestUrl.searchParams.get("offset") || "0"
-  });
-  writeJson(response, 200, {
-    summary: signupStore.getStats(),
-    total: result.total,
-    limit: result.limit,
-    offset: result.offset,
-    signups: result.rows.map((row) => signupStore.serializeSignup(row))
-  });
-}
-
-function handleAdminSignupExport(request, response) {
-  getRequiredAdminSession(request);
-  writeText(response, 200, signupStore.exportCsv(), "text/csv; charset=utf-8", {
-    "Content-Disposition": `attachment; filename="liberdus-social-signups.csv"`
-  });
-}
+adminController = createAdminController({
+  HttpError,
+  createRandomToken,
+  secureEquals,
+  writeJson,
+  writeText,
+  readJsonRequest,
+  signupStore
+});
 
 async function handleTestDiscordSession(request, response) {
   if (!isE2ETestMode()) throw new HttpError(404, "Not found.");
@@ -239,25 +182,25 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && pathname === "/api/admin/login") {
       requireAllowedOrigin(request, response);
-      await handleAdminLogin(request, response);
+      await adminController.handleLogin(request, response);
       return;
     }
 
     if (request.method === "POST" && pathname === "/api/admin/logout") {
       requireAllowedOrigin(request, response);
-      await handleAdminLogout(request, response);
+      await adminController.handleLogout(request, response);
       return;
     }
 
     if (request.method === "GET" && pathname === "/api/admin/signups") {
       requireAllowedOrigin(request, response);
-      handleAdminSignupList(request, response, requestUrl);
+      adminController.handleSignupList(request, response, requestUrl);
       return;
     }
 
     if (request.method === "GET" && pathname === "/api/admin/signups/export") {
       requireAllowedOrigin(request, response);
-      handleAdminSignupExport(request, response);
+      adminController.handleSignupExport(request, response);
       return;
     }
 
