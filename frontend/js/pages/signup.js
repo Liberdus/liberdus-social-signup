@@ -214,6 +214,7 @@ function createProviderLink(provider, link) {
   anchor.dataset.providerId = provider.id;
   anchor.dataset.hrefKey = link.hrefKey || "";
   anchor.dataset.fallbackHrefKey = link.fallbackHrefKey || "";
+  setActionLinkDisabled(anchor, true);
   anchor.addEventListener("click", (event) => {
     if (anchor.getAttribute("aria-disabled") === "true") {
       event.preventDefault();
@@ -259,6 +260,7 @@ function renderProviderRows() {
 
     const statusText = document.createElement("p");
     statusText.id = `${provider.id}StatusText`;
+    statusText.textContent = "Connect a wallet first.";
 
     titleRow.append(title, optional);
     copy.append(titleRow, statusText);
@@ -276,6 +278,7 @@ function renderProviderRows() {
       authButton.type = "button";
       authButton.className = "secondary";
       authButton.textContent = "Sign in";
+      authButton.disabled = true;
       actions.append(authButton);
     }
     if (provider.disconnect) {
@@ -285,6 +288,7 @@ function renderProviderRows() {
       disconnectButton.className = "ghost";
       disconnectButton.textContent = "Sign out";
       disconnectButton.hidden = true;
+      disconnectButton.disabled = true;
       actions.append(disconnectButton);
     }
 
@@ -821,10 +825,11 @@ function bindEvents() {
 }
 
 async function init() {
-  const loaded = await loadUiConfig();
-  runtime.config = loaded.config;
   renderProviderRows();
   renderFooterLinks();
+
+  const loaded = await loadUiConfig();
+  runtime.config = loaded.config;
   applySocialLinks();
   await loadPublicBackendConfig();
   syncXSessionFromStorage();

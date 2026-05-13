@@ -94,9 +94,9 @@
               <p id="xStatusText">Not signed in</p>
             </div>
             <div class="checklist-actions button-row">
-              <a id="xChecklistLink" class="secondary nav-button checklist-link" href="https://x.com/liberdus" target="_blank" rel="noreferrer noopener">Follow</a>
-              <button id="xAuthButton" type="button" class="secondary">Sign in with X</button>
-              <button id="xDisconnectButton" type="button" class="ghost" hidden>Sign out</button>
+              <a id="xChecklistLink" class="secondary nav-button checklist-link" href="https://x.com/liberdus" target="_blank" rel="noreferrer noopener" aria-disabled="true" tabindex="-1">Follow</a>
+              <button id="xAuthButton" type="button" class="secondary" disabled>Sign in with X</button>
+              <button id="xDisconnectButton" type="button" class="ghost" hidden disabled>Sign out</button>
             </div>
           </article>
 
@@ -105,7 +105,7 @@
 
         <div class="checklist-submit-bar">
           <p id="proofHint" class="hint">Nothing is saved until you submit and sign with your wallet.</p>
-          <button id="submitButton" type="button">Submit & Sign</button>
+          <button id="submitButton" type="button" disabled>Submit & Sign</button>
         </div>
       </section>
     </main>
