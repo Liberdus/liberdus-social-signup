@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { parseJsonObject, stringifyJsonObject } = require("./json-utils");
 
 const CSV_COLUMNS = [
   "submitted_at",
@@ -17,18 +18,6 @@ const CSV_COLUMNS = [
 
 const SOCIAL_PROVIDER_ORDER = ["x", "discord", "telegram", "linkedin", "github", "youtube"];
 
-function parseJson(value) {
-  try {
-    return JSON.parse(value || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function toJson(value) {
-  return JSON.stringify(value || {});
-}
-
 function serializeSocialVerification(row) {
   if (!row) return null;
   return {
@@ -38,7 +27,7 @@ function serializeSocialVerification(row) {
     targetId: row.target_id || "",
     status: row.status,
     checkedAt: row.checked_at,
-    rawResult: parseJson(row.raw_result_json),
+    rawResult: parseJsonObject(row.raw_result_json),
     createdAt: row.created_at
   };
 }
@@ -55,7 +44,7 @@ function serializeSocialAccount(row, verifications = []) {
     profileUrl: row.profile_url || "",
     avatarUrl: row.avatar_url || "",
     connectedAt: row.connected_at,
-    rawProfile: parseJson(row.raw_profile_json),
+    rawProfile: parseJsonObject(row.raw_profile_json),
     verifications,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -65,7 +54,7 @@ function serializeSocialAccount(row, verifications = []) {
 function serializeSignup(row, { socialAccounts = [] } = {}) {
   if (!row) return null;
 
-  const verification = parseJson(row.verification_json);
+  const verification = parseJsonObject(row.verification_json);
 
   return {
     id: row.id,
@@ -314,7 +303,7 @@ function createSignupStore(db) {
         profileUrl: String(account.profileUrl || "").trim(),
         avatarUrl: String(account.avatarUrl || "").trim(),
         connectedAt: account.connectedAt || now,
-        rawProfileJson: toJson(account.rawProfile),
+        rawProfileJson: stringifyJsonObject(account.rawProfile),
         createdAt: account.createdAt || now,
         updatedAt: account.updatedAt || now
       });
@@ -329,7 +318,7 @@ function createSignupStore(db) {
           targetId: String(verification.targetId || "").trim(),
           status: normalizeSocialStatus(verification.status),
           checkedAt: verification.checkedAt || now,
-          rawResultJson: toJson(verification.rawResult),
+          rawResultJson: stringifyJsonObject(verification.rawResult),
           createdAt: verification.createdAt || now
         });
       }

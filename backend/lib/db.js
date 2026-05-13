@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const Database = require("better-sqlite3");
+const { parseJsonObject, stringifyJsonObject } = require("./json-utils");
 
 const DEFAULT_DB_PATH = path.join("data", "liberdus-social-signup.sqlite");
 
@@ -14,18 +15,6 @@ function resolveRepoPath(filePath) {
 
 function getDatabasePath() {
   return resolveRepoPath(process.env.SIGNUP_DB_PATH || DEFAULT_DB_PATH);
-}
-
-function parseJson(value) {
-  try {
-    return JSON.parse(value || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function toJson(value) {
-  return JSON.stringify(value || {});
 }
 
 function addSocialSchema(db) {
@@ -273,7 +262,7 @@ function backfillSocialSchema(db) {
 
   const rows = db.prepare("SELECT * FROM signups").all();
   for (const row of rows) {
-    const verification = parseJson(row.verification_json);
+    const verification = parseJsonObject(row.verification_json);
     const createdAt = row.created_at || row.submitted_at;
     const updatedAt = row.updated_at || createdAt;
 
@@ -420,7 +409,7 @@ function backfillSocialSchema(db) {
         profileUrl: account.profileUrl || "",
         avatarUrl: account.avatarUrl || "",
         connectedAt: account.connectedAt || createdAt,
-        rawProfileJson: toJson(account.rawProfile),
+        rawProfileJson: stringifyJsonObject(account.rawProfile),
         createdAt,
         updatedAt
       });
@@ -435,7 +424,7 @@ function backfillSocialSchema(db) {
           targetId: verificationEvent.targetId || "",
           status: verificationEvent.status || "unknown",
           checkedAt: verificationEvent.checkedAt || createdAt,
-          rawResultJson: toJson(verificationEvent.rawResult),
+          rawResultJson: stringifyJsonObject(verificationEvent.rawResult),
           createdAt
         });
       }

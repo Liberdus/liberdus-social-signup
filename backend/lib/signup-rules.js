@@ -1,16 +1,7 @@
+const { parseJsonObject } = require("./json-utils");
+
 const REQUIRED_SOCIAL_PROVIDER_IDS = ["x", "telegram", "discord", "linkedin"];
 const SNAPSHOT_PROVIDERS = ["discord", "telegram", "linkedin", "github", "youtube"];
-
-function parseJsonObject(value) {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value;
-
-  try {
-    const parsed = JSON.parse(value || "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
 
 function getProviderLabel(provider) {
   return ({
@@ -23,6 +14,9 @@ function getProviderLabel(provider) {
   })[provider] || provider;
 }
 
+// A submit can discover the same existing signup through multiple routes, such
+// as the loaded wallet session and the current wallet address. Collapse those
+// matches before deciding whether accounts point at conflicting signups.
 function getDistinctExistingSignups(signups = []) {
   const byId = new Map();
   for (const signup of signups) {
@@ -31,10 +25,15 @@ function getDistinctExistingSignups(signups = []) {
   return [...byId.values()];
 }
 
+// Only these first-class identity providers satisfy the required social gate.
+// Link-only or reward-only providers like GitHub, YouTube, and CMC stay outside
+// this rule even though they can still be saved for rewards.
 function hasRequiredSocialAccount(accounts = []) {
   return accounts.some((account) => REQUIRED_SOCIAL_PROVIDER_IDS.includes(account.provider) && account.providerUserId);
 }
 
+// Loaded signups may arrive as camelCase serialized objects, while direct DB
+// rows use snake_case. Accept both so the rule stays independent of call site.
 function signupHasRequiredSocial(signup) {
   return Boolean(
     signup?.xUserId
@@ -43,6 +42,8 @@ function signupHasRequiredSocial(signup) {
   );
 }
 
+// X existed before the normalized social account table, so conflict checks need
+// to look in both the social account rows and the legacy x_user_id column.
 function findSocialAccountOwner(signupStore, account) {
   if (!signupStore || !account?.provider || !account?.providerUserId) return null;
   if (account.provider === "x") {
@@ -52,6 +53,8 @@ function findSocialAccountOwner(signupStore, account) {
   return signupStore.findBySocialAccount(account.provider, account.providerUserId);
 }
 
+// Return the first provider account that belongs to another signup. The caller
+// turns this into an HTTP 409, but the pure rule remains easy to unit test.
 function findSocialConflict(signupStore, accounts = [], targetSignupId = "") {
   for (const account of accounts) {
     const owner = findSocialAccountOwner(signupStore, account);
@@ -69,6 +72,10 @@ function getSignupVerification(signup) {
     : parseJsonObject(signup.verification_json);
 }
 
+// Updating an existing signup should not erase saved provider checks just
+// because the browser does not currently have that provider's OAuth session.
+// Fresh sessions replace their own provider snapshot; disconnected providers
+// keep their last saved verification state.
 function mergeVerification(existingSignup, currentVerification, { hasXSession } = {}) {
   if (!existingSignup) return currentVerification;
   const existing = getSignupVerification(existingSignup);
@@ -92,6 +99,8 @@ function mergeVerification(existingSignup, currentVerification, { hasXSession } 
   return merged;
 }
 
+// Account replacement is provider-scoped: reconnecting Discord replaces the
+// saved Discord account, while saved Telegram/GitHub/etc. remain attached.
 function mergeSocialAccounts(existingAccounts = [], currentAccounts = []) {
   const byProvider = new Map();
   for (const account of existingAccounts) {
@@ -103,6 +112,8 @@ function mergeSocialAccounts(existingAccounts = [], currentAccounts = []) {
   return [...byProvider.values()];
 }
 
+// Summary columns are legacy/admin conveniences. Prefer fresh connected values,
+// but keep the previous summary when a provider was not reconnected.
 function getOptionalSummaryValue(value, fallback = "") {
   const normalized = String(value || "").trim();
   return normalized || fallback || undefined;
