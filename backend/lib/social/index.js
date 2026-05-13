@@ -1,3 +1,4 @@
+const { createXProvider } = require("./x");
 const { createDiscordProvider } = require("./discord");
 const { createTelegramProvider } = require("./telegram");
 const { createLinkedInProvider } = require("./linkedin");
@@ -6,6 +7,7 @@ const { createYouTubeProvider } = require("./youtube");
 
 function createSocialProviders(context) {
   const providers = [
+    createXProvider(context),
     createDiscordProvider(context),
     createTelegramProvider(context),
     createLinkedInProvider(context),

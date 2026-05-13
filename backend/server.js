@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const http = require("node:http");
 const path = require("node:path");
 
@@ -24,21 +25,8 @@ const HOST = process.env.SIGNUP_HOST || "127.0.0.1";
 const PORT = Number.parseInt(process.env.SIGNUP_PORT || "8788", 10);
 const DEFAULT_ALLOWED_ORIGIN = "http://127.0.0.1:5503";
 const DEFAULT_FRONTEND_RETURN_URL = "http://127.0.0.1:5503/frontend/";
-const REQUEST_TOKEN_URL = "https://api.x.com/oauth/request_token";
-const AUTHORIZE_URL = "https://api.x.com/oauth/authorize";
-const ACCESS_TOKEN_URL = "https://api.x.com/oauth/access_token";
-const VERIFY_CREDENTIALS_URL = "https://api.x.com/1.1/account/verify_credentials.json";
-const AUTH_SESSION_COOKIE_NAME = "liberdus_signup_x_session";
-const AUTH_INIT_COOKIE_NAME = "liberdus_signup_x_oauth_init";
 const SIGNUP_BROWSER_COOKIE_NAME = "liberdus_signup_browser_session";
-const AUTH_COMPLETE_QUERY_PARAM = "x_auth";
-const AUTH_COMPLETE_QUERY_VALUE = "complete";
-const AUTH_COMPLETION_TOKEN_QUERY_PARAM = "x_completion";
-const AUTH_ERROR_QUERY_PARAM = "x_error";
-const AUTH_SESSION_TTL_MS = 30 * 60 * 1000;
-const AUTH_COMPLETION_TOKEN_TTL_MS = 5 * 60 * 1000;
 const SIGNUP_BROWSER_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
-const REQUEST_TOKEN_TTL_MS = 10 * 60 * 1000;
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const ADMIN_SESSION_TTL_MS = 60 * 60 * 1000;
 const MAX_JSON_BODY_BYTES = 64 * 1024;
@@ -70,10 +58,7 @@ const {
   maxJsonBodyBytes: MAX_JSON_BODY_BYTES
 });
 
-const authSessions = new Map();
-const authCompletions = new Map();
 const signupBrowserSessions = new Map();
-const requestTokens = new Map();
 const signupChallenges = new Map();
 const adminSessions = new Map();
 let socialProviders;
@@ -81,140 +66,15 @@ let socialProviders;
 const db = openDatabase();
 const signupStore = createSignupStore(db);
 
-function getApiKey() {
-  return String(process.env.X_API_KEY || process.env.X_CONSUMER_KEY || process.env.X_APP_KEY || "").trim();
-}
-
-function getApiSecret() {
-  return String(process.env.X_API_SECRET || process.env.X_API_SECRET_KEY || process.env.X_CONSUMER_SECRET || "").trim();
-}
-
-function getCallbackUrl() {
-  return String(process.env.X_OAUTH1_CALLBACK_URL || "").trim();
-}
-
 function isE2ETestMode() {
   return /^(1|true|yes)$/iu.test(String(process.env.E2E_TEST_MODE || "").trim());
-}
-
-function percentEncode(value) {
-  return encodeURIComponent(String(value)).replace(/[!'()*]/gu, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
-}
-
-function parseFormEncoded(text) {
-  return Object.fromEntries(new URLSearchParams(text).entries());
-}
-
-function buildNormalizedParameterString(params) {
-  return [...params]
-    .map(([key, value]) => [percentEncode(key), percentEncode(value)])
-    .sort((left, right) => left[0] === right[0] ? left[1].localeCompare(right[1]) : left[0].localeCompare(right[0]))
-    .map(([key, value]) => `${key}=${value}`)
-    .join("&");
-}
-
-function buildSignature({ method, url, params, consumerSecret, tokenSecret = "" }) {
-  const normalizedUrl = new URL(url);
-  normalizedUrl.search = "";
-  normalizedUrl.hash = "";
-  const baseString = [
-    method.toUpperCase(),
-    percentEncode(normalizedUrl.toString()),
-    percentEncode(buildNormalizedParameterString(params))
-  ].join("&");
-  return crypto.createHmac("sha1", `${percentEncode(consumerSecret)}&${percentEncode(tokenSecret)}`).update(baseString).digest("base64");
-}
-
-function createOAuthHeader(params) {
-  return `OAuth ${[...params.entries()]
-    .filter(([key]) => key.startsWith("oauth_"))
-    .sort((left, right) => left[0].localeCompare(right[0]))
-    .map(([key, value]) => `${percentEncode(key)}="${percentEncode(value)}"`)
-    .join(", ")}`;
-}
-
-function buildOAuthParams(overrides = {}) {
-  return new Map(Object.entries({
-    oauth_consumer_key: getApiKey(),
-    oauth_nonce: createRandomToken(16),
-    oauth_signature_method: "HMAC-SHA1",
-    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
-    oauth_version: "1.0",
-    ...overrides
-  }));
-}
-
-async function oauthRequest({ method, url, oauthOverrides = {}, requestParams = new Map(), tokenSecret = "" }) {
-  const apiKey = getApiKey();
-  const apiSecret = getApiSecret();
-  if (!apiKey || !apiSecret) {
-    throw new HttpError(500, "Missing X API key or API secret in .env.", { expose: false });
-  }
-
-  const oauthParams = buildOAuthParams(oauthOverrides);
-  const signatureParams = new Map([...oauthParams.entries(), ...requestParams.entries()]);
-  oauthParams.set("oauth_signature", buildSignature({
-    method,
-    url,
-    params: signatureParams,
-    consumerSecret: apiSecret,
-    tokenSecret
-  }));
-
-  const response = await fetch(url, {
-    method,
-    headers: {
-      Authorization: createOAuthHeader(oauthParams),
-      "Content-Length": "0"
-    }
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    console.error(`[X OAuth ${method} ${url}] HTTP ${response.status}: ${text}`);
-    throw new HttpError(502, "X rejected the authentication request.", { expose: false });
-  }
-  return parseFormEncoded(text);
-}
-
-async function verifyCredentials(accessToken, accessTokenSecret) {
-  const oauthParams = buildOAuthParams({
-    oauth_consumer_key: getApiKey(),
-    oauth_token: accessToken
-  });
-  oauthParams.set("oauth_signature", buildSignature({
-    method: "GET",
-    url: VERIFY_CREDENTIALS_URL,
-    params: oauthParams,
-    consumerSecret: getApiSecret(),
-    tokenSecret: accessTokenSecret
-  }));
-
-  const response = await fetch(VERIFY_CREDENTIALS_URL, {
-    method: "GET",
-    headers: { Authorization: createOAuthHeader(oauthParams) }
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    console.error(`[X verify credentials] HTTP ${response.status}: ${text}`);
-    throw new HttpError(502, "X user identity lookup failed.", { expose: false });
-  }
-  return JSON.parse(text);
 }
 
 function pruneExpiredState() {
   const now = Date.now();
   socialProviders?.pruneExpired(now);
-  for (const [key, session] of authSessions.entries()) {
-    if (session.expiresAtMs <= now) authSessions.delete(key);
-  }
-  for (const [key, completion] of authCompletions.entries()) {
-    if (completion.expiresAtMs <= now) authCompletions.delete(key);
-  }
   for (const [key, session] of signupBrowserSessions.entries()) {
     if (session.expiresAtMs <= now) signupBrowserSessions.delete(key);
-  }
-  for (const [key, pending] of requestTokens.entries()) {
-    if (pending.expiresAtMs <= now) requestTokens.delete(key);
   }
   for (const [key, challenge] of signupChallenges.entries()) {
     if (challenge.expiresAtMs <= now) signupChallenges.delete(key);
@@ -222,49 +82,6 @@ function pruneExpiredState() {
   for (const [key, session] of adminSessions.entries()) {
     if (session.expiresAtMs <= now) adminSessions.delete(key);
   }
-}
-
-function normalizeXProfile(rawProfile) {
-  return {
-    id: String(rawProfile.id_str || rawProfile.id || "").trim(),
-    username: String(rawProfile.screen_name || rawProfile.username || "").trim(),
-    name: String(rawProfile.name || rawProfile.screen_name || "").trim(),
-    profileImageUrl: String(rawProfile.profile_image_url_https || rawProfile.profile_image_url || "").trim(),
-    verified: Boolean(rawProfile.verified)
-  };
-}
-
-function serializeSession(session) {
-  return {
-    profile: session.profile,
-    csrfToken: session.csrfToken,
-    authenticatedAt: session.authenticatedAt,
-    expiresAt: session.expiresAtMs
-  };
-}
-
-function getRequiredSessionFromCookie(request) {
-  pruneExpiredState();
-  const sessionId = parseCookies(request)[AUTH_SESSION_COOKIE_NAME];
-  const session = sessionId ? authSessions.get(sessionId) : null;
-  if (!session) throw new HttpError(401, "Sign in with X first.");
-  return session;
-}
-
-function getOptionalSessionFromCookie(request) {
-  pruneExpiredState();
-  const sessionId = parseCookies(request)[AUTH_SESSION_COOKIE_NAME];
-  return sessionId ? authSessions.get(sessionId) || null : null;
-}
-
-function setXSessionCookie(response, sessionId) {
-  setCookie(response, AUTH_SESSION_COOKIE_NAME, sessionId, {
-    path: "/api/",
-    maxAge: AUTH_SESSION_TTL_MS / 1000,
-    httpOnly: true,
-    sameSite: "Lax",
-    secure: shouldUseSecureCookies()
-  });
 }
 
 function createSignupBrowserSession(response) {
@@ -312,13 +129,6 @@ function requireSignupBrowserSession(request) {
   return existing;
 }
 
-function requireCsrf(request, session) {
-  const csrfToken = String(request.headers["x-csrf-token"] || "").trim();
-  if (!csrfToken || !secureEquals(csrfToken, session.csrfToken)) {
-    throw new HttpError(403, "CSRF token is invalid.");
-  }
-}
-
 function requireWalletAddress(value) {
   if (!ethers.isAddress(value)) throw new HttpError(400, "Wallet address is invalid.");
   return ethers.getAddress(value);
@@ -350,136 +160,9 @@ function getClientIp(request) {
   return String(request.socket?.remoteAddress || "").replace(/^::ffff:/u, "");
 }
 
-async function handleStart(request, response, requestUrl) {
-  const returnUri = validateReturnUri(requestUrl.searchParams.get("return_uri"));
-  const callbackUrl = getCallbackUrl();
-  if (!callbackUrl) throw new HttpError(500, "Missing X OAuth callback URL in .env.", { expose: false });
-
-  const result = await oauthRequest({
-    method: "POST",
-    url: REQUEST_TOKEN_URL,
-    oauthOverrides: { oauth_callback: callbackUrl },
-    requestParams: new Map([["oauth_callback", callbackUrl]])
-  });
-  if (!result.oauth_token || !result.oauth_token_secret) {
-    throw new HttpError(502, "X did not return a request token.", { expose: false });
-  }
-
-  requestTokens.set(result.oauth_token, {
-    tokenSecret: result.oauth_token_secret,
-    returnUri,
-    expiresAtMs: Date.now() + REQUEST_TOKEN_TTL_MS
-  });
-  setCookie(response, AUTH_INIT_COOKIE_NAME, result.oauth_token, {
-    path: "/api/x/",
-    maxAge: REQUEST_TOKEN_TTL_MS / 1000,
-    httpOnly: true,
-    sameSite: "Lax",
-    secure: shouldUseSecureCookies()
-  });
-
-  const authorizeUrl = new URL(AUTHORIZE_URL);
-  authorizeUrl.searchParams.set("oauth_token", result.oauth_token);
-  redirect(response, authorizeUrl.toString());
-}
-
-async function handleCallback(request, response, requestUrl) {
-  const oauthToken = String(requestUrl.searchParams.get("oauth_token") || "").trim();
-  const oauthVerifier = String(requestUrl.searchParams.get("oauth_verifier") || "").trim();
-  const denied = String(requestUrl.searchParams.get("denied") || "").trim();
-  const callbackToken = oauthToken || denied;
-  const pending = callbackToken ? requestTokens.get(callbackToken) : null;
-  const fallbackReturnUri = getDefaultFrontendReturnUrl();
-  const returnUri = pending?.returnUri || fallbackReturnUri;
-  const initCookieToken = String(parseCookies(request)[AUTH_INIT_COOKIE_NAME] || "").trim();
-  const hasValidInitCookie = Boolean(callbackToken && initCookieToken && secureEquals(initCookieToken, callbackToken));
-
-  clearCookie(response, AUTH_INIT_COOKIE_NAME, { path: "/api/x/", sameSite: "Lax", secure: shouldUseSecureCookies() });
-
-  if (denied && hasValidInitCookie) {
-    requestTokens.delete(denied);
-    const url = new URL(returnUri);
-    url.searchParams.set(AUTH_ERROR_QUERY_PARAM, "X sign-in was cancelled.");
-    redirect(response, url.toString());
-    return;
-  }
-  if (!oauthToken || !oauthVerifier || !pending || !hasValidInitCookie) {
-    const url = new URL(returnUri);
-    url.searchParams.set(AUTH_ERROR_QUERY_PARAM, "X sign-in expired. Try again.");
-    redirect(response, url.toString());
-    return;
-  }
-
-  const access = await oauthRequest({
-    method: "POST",
-    url: ACCESS_TOKEN_URL,
-    oauthOverrides: {
-      oauth_token: oauthToken,
-      oauth_verifier: oauthVerifier
-    },
-    requestParams: new Map([["oauth_verifier", oauthVerifier]]),
-    tokenSecret: pending.tokenSecret
-  });
-  const rawProfile = await verifyCredentials(access.oauth_token, access.oauth_token_secret);
-  const profile = normalizeXProfile(rawProfile);
-  if (!profile.id || !profile.username) {
-    throw new HttpError(502, "X did not return a usable profile.", { expose: false });
-  }
-
-  const sessionId = createRandomToken();
-  const now = new Date().toISOString();
-  authSessions.set(sessionId, {
-    sessionId,
-    csrfToken: createRandomToken(24),
-    profile,
-    authenticatedAt: now,
-    expiresAtMs: Date.now() + AUTH_SESSION_TTL_MS
-  });
-  requestTokens.delete(oauthToken);
-  setXSessionCookie(response, sessionId);
-  const completionToken = createRandomToken(18);
-  authCompletions.set(completionToken, {
-    sessionId,
-    expiresAtMs: Date.now() + AUTH_COMPLETION_TOKEN_TTL_MS
-  });
-
-  const url = new URL(returnUri);
-  url.searchParams.set(AUTH_COMPLETE_QUERY_PARAM, AUTH_COMPLETE_QUERY_VALUE);
-  url.searchParams.set(AUTH_COMPLETION_TOKEN_QUERY_PARAM, completionToken);
-  redirect(response, url.toString());
-}
-
-async function handleSessionLookup(request, response, requestUrl) {
-  const completionToken = String(requestUrl.searchParams.get(AUTH_COMPLETION_TOKEN_QUERY_PARAM) || "").trim();
-  const completion = completionToken ? authCompletions.get(completionToken) : null;
-  const session = completion?.sessionId
-    ? authSessions.get(completion.sessionId) || null
-    : getRequiredSessionFromCookie(request);
-  if (completionToken) authCompletions.delete(completionToken);
-  if (!session) throw new HttpError(401, "Sign in with X first.");
-  setXSessionCookie(response, session.sessionId);
-  writeJson(response, 200, serializeSession(session));
-}
-
-async function handleLogout(request, response) {
-  try {
-    const session = getRequiredSessionFromCookie(request);
-    requireCsrf(request, session);
-    authSessions.delete(session.sessionId);
-  } catch (error) {
-    if (!(error instanceof HttpError) || error.statusCode !== 401) throw error;
-  }
-  clearCookie(response, AUTH_SESSION_COOKIE_NAME, {
-    path: "/api/",
-    sameSite: "Lax",
-    secure: shouldUseSecureCookies()
-  });
-  writeJson(response, 200, { ok: true });
-}
-
 async function handleSignupChallenge(request, response) {
   const browserSession = getSignupBrowserSession(request, response);
-  const xSession = getOptionalSessionFromCookie(request);
+  const xSession = socialProviders.providerById.get("x")?.getSessionFromCookie?.(request) || null;
   const body = await readJsonRequest(request);
   const walletAddress = requireWalletAddress(body.walletAddress);
   const challengeId = createRandomToken(18);
@@ -593,38 +276,8 @@ socialProviders = createSocialProviders({
   getVerificationStatus
 });
 
-function buildSignupSocialAccounts({ session, socialSessions = {}, verification, now }) {
-  const accounts = [];
-
-  if (session?.profile?.id) {
-    accounts.push({
-      provider: "x",
-      providerUserId: session.profile.id,
-      username: session.profile.username,
-      displayName: session.profile.name || session.profile.username,
-      profileUrl: session.profile.username ? `https://x.com/${session.profile.username}` : "",
-      avatarUrl: session.profile.profileImageUrl || "",
-      connectedAt: session.authenticatedAt || now,
-      rawProfile: session.profile,
-      verifications: [{
-        checkType: "x_authenticated",
-        targetId: session.profile.id,
-        status: "passed",
-        checkedAt: session.authenticatedAt || now,
-        rawResult: verification.x
-      }, {
-        checkType: "x_verified",
-        targetId: session.profile.id,
-        status: getVerificationStatus(Boolean(session.profile.verified)),
-        checkedAt: session.authenticatedAt || now,
-        rawResult: { verified: Boolean(session.profile.verified) }
-      }]
-    });
-  }
-
-  accounts.push(...socialProviders.buildSocialAccounts(socialSessions, now));
-
-  return accounts;
+function buildSignupSocialAccounts({ socialSessions = {}, now }) {
+  return socialProviders.buildSocialAccounts(socialSessions, now);
 }
 
 function assertNoSocialConflicts(accounts, targetSignupId = "") {
@@ -634,33 +287,21 @@ function assertNoSocialConflicts(accounts, targetSignupId = "") {
   }
 }
 
-function buildCurrentVerification({ session, socialSessions, walletProof, coinMarketCapOpened }) {
+function buildCurrentVerification({ socialSessions, walletProof, coinMarketCapOpened }) {
   const socialVerification = socialProviders.getVerificationSnapshot(socialSessions);
   return {
-    x: session?.profile?.id
-      ? {
-          authenticated: true,
-          userId: session.profile.id,
-          username: session.profile.username,
-          verified: Boolean(session.profile.verified),
-          followChecks: []
-        }
-      : {
-          authenticated: false,
-          followChecks: []
-        },
+    ...socialVerification,
     wallet: {
       signed: true,
       chainId: walletProof.walletChainId
     },
-    ...socialVerification,
     coinMarketCap: { opened: Boolean(coinMarketCapOpened), verified: false }
   };
 }
 
 async function handleSignupComplete(request, response) {
-  const session = getOptionalSessionFromCookie(request);
   const socialSessions = socialProviders.getSessionsFromCookies(request);
+  const xSession = socialSessions.x;
   const browserSession = requireSignupBrowserSession(request);
   const body = await readJsonRequest(request);
 
@@ -678,19 +319,16 @@ async function handleSignupComplete(request, response) {
 
   const now = new Date().toISOString();
   const currentVerification = buildCurrentVerification({
-    session,
     socialSessions,
     walletProof,
     coinMarketCapOpened: body.coinMarketCapOpened
   });
   const currentSocialAccounts = buildSignupSocialAccounts({
-    session,
     socialSessions,
-    verification: currentVerification,
     now
   });
 
-  const existingByX = session?.profile?.id ? signupStore.findByXUserId(session.profile.id) : null;
+  const existingByX = xSession?.profile?.id ? signupStore.findByXUserId(xSession.profile.id) : null;
   const existingByWallet = signupStore.findByWalletAddress(walletAddress);
   const authenticatedSignup = browserSession.authenticatedSignupId
     ? signupStore.findById(browserSession.authenticatedSignupId)
@@ -713,16 +351,16 @@ async function handleSignupComplete(request, response) {
     throw new HttpError(400, "Connect X, Telegram, Discord, or LinkedIn before submitting.");
   }
 
-  const verification = mergeVerification(targetSignup, currentVerification, { hasXSession: Boolean(session?.profile?.id) });
+  const verification = mergeVerification(targetSignup, currentVerification, { hasXSession: Boolean(xSession?.profile?.id) });
   const mergedSocialAccounts = targetSignupSerialized
     ? mergeSocialAccounts(targetSignupSerialized.socialAccounts, currentSocialAccounts)
     : currentSocialAccounts;
   const signupInput = {
     id: targetSignup?.id || crypto.randomUUID(),
-    xUserId: session?.profile?.id || targetSignup?.x_user_id || undefined,
-    xUsername: session?.profile?.username || targetSignup?.x_username || undefined,
-    xName: session?.profile?.name || targetSignup?.x_name || undefined,
-    xProfileImageUrl: session?.profile?.profileImageUrl || targetSignup?.x_profile_image_url || undefined,
+    xUserId: xSession?.profile?.id || targetSignup?.x_user_id || undefined,
+    xUsername: xSession?.profile?.username || targetSignup?.x_username || undefined,
+    xName: xSession?.profile?.name || targetSignup?.x_name || undefined,
+    xProfileImageUrl: xSession?.profile?.profileImageUrl || targetSignup?.x_profile_image_url || undefined,
     walletAddress,
     walletChainId: walletProof.walletChainId,
     signedMessage: walletProof.signedMessage,
@@ -872,7 +510,6 @@ const server = http.createServer(async (request, response) => {
         ok: true,
         dbPath: getDatabasePath(),
         stats: signupStore.getStats(),
-        xApiConfigured: Boolean(getApiKey() && getApiSecret()),
         allowedOrigins: getAllowedOrigins(),
         allowedReturnUrls: getAllowedReturnUrls(),
         ...socialProviders.getHealth()
@@ -888,28 +525,6 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && pathname === "/api/test/session/discord") {
       await handleTestDiscordSession(request, response);
-      return;
-    }
-
-    if (request.method === "GET" && pathname === "/api/x/start") {
-      await handleStart(request, response, requestUrl);
-      return;
-    }
-
-    if (request.method === "GET" && pathname === "/api/x/callback") {
-      await handleCallback(request, response, requestUrl);
-      return;
-    }
-
-    if (request.method === "GET" && pathname === "/api/x/session") {
-      requireAllowedOrigin(request, response);
-      await handleSessionLookup(request, response, requestUrl);
-      return;
-    }
-
-    if (request.method === "POST" && pathname === "/api/x/logout") {
-      requireAllowedOrigin(request, response);
-      await handleLogout(request, response);
       return;
     }
 
@@ -973,9 +588,9 @@ server.listen(PORT, HOST, () => {
   console.log(`SQLite path: ${getDatabasePath()}`);
   console.log(`Allowed origins: ${getAllowedOrigins().join(", ")}`);
   console.log(`Allowed return URLs: ${getAllowedReturnUrls().join(", ")}`);
-  console.log(`X API configured: ${getApiKey() && getApiSecret() ? "yes" : "no"}`);
-  console.log(`X callback URL: ${getCallbackUrl() || "(missing)"}`);
   const socialHealth = socialProviders.getHealth();
+  console.log(`X API configured: ${socialHealth.xApiConfigured ? "yes" : "no"}`);
+  console.log(`X callback configured: ${socialHealth.xCallbackConfigured ? "yes" : "no"}`);
   console.log(`Telegram bot configured: ${socialHealth.telegramBotConfigured ? "yes" : "no"}`);
   console.log(`LinkedIn API configured: ${socialHealth.linkedinApiConfigured ? "yes" : "no"}`);
   console.log(`GitHub API configured: ${socialHealth.githubApiConfigured ? "yes" : "no"}`);
