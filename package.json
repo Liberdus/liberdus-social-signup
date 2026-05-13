@@ -5,6 +5,8 @@
   "private": true,
   "main": "backend/server.js",
   "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:unit": "node --test \"test/unit/*.test.js\"",
     "serve": "node backend/server.js",
     "serve:static": "node scripts/static-server.js"
   },

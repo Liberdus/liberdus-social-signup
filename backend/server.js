@@ -7,6 +7,16 @@ const { ethers } = require("ethers");
 const { openDatabase, getDatabasePath } = require("./lib/db");
 const { createSignupStore } = require("./lib/signup-store");
 const { createSocialProviders } = require("./lib/social");
+const {
+  getDistinctExistingSignups,
+  getOptionalSummaryValue,
+  getProviderLabel,
+  hasRequiredSocialAccount,
+  signupHasRequiredSocial,
+  findSocialConflict,
+  mergeSocialAccounts,
+  mergeVerification
+} = require("./lib/signup-rules");
 
 dotenv.config({ path: path.join(__dirname, "..", ".env"), quiet: true });
 
@@ -40,7 +50,6 @@ const requestTokens = new Map();
 const signupChallenges = new Map();
 const adminSessions = new Map();
 let socialProviders;
-const REQUIRED_SOCIAL_PROVIDER_IDS = ["x", "telegram", "discord", "linkedin"];
 
 const db = openDatabase();
 const signupStore = createSignupStore(db);
@@ -485,26 +494,6 @@ function normalizeText(value, maxLength) {
   return text.slice(0, maxLength);
 }
 
-function parseJsonObject(value) {
-  try {
-    const parsed = JSON.parse(value || "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function getProviderLabel(provider) {
-  return ({
-    x: "X",
-    discord: "Discord",
-    telegram: "Telegram",
-    linkedin: "LinkedIn",
-    github: "GitHub",
-    youtube: "YouTube"
-  })[provider] || provider;
-}
-
 function buildWalletSignupMessage({ profile, walletAddress, challengeId, issuedAt }) {
   const lines = [
     "Liberdus Social Rewards Signup",
@@ -803,40 +792,10 @@ function buildSignupSocialAccounts({ session, socialSessions = {}, verification,
   return accounts;
 }
 
-function getDistinctExistingSignups(signups = []) {
-  const byId = new Map();
-  for (const signup of signups) {
-    if (signup?.id) byId.set(signup.id, signup);
-  }
-  return [...byId.values()];
-}
-
-function hasRequiredSocialAccount(accounts = []) {
-  return accounts.some((account) => REQUIRED_SOCIAL_PROVIDER_IDS.includes(account.provider) && account.providerUserId);
-}
-
-function signupHasRequiredSocial(signup) {
-  return Boolean(
-    signup?.xUserId
-    || (signup?.socialAccounts || []).some((account) => REQUIRED_SOCIAL_PROVIDER_IDS.includes(account.provider) && account.providerUserId)
-  );
-}
-
-function findSocialAccountOwner(account) {
-  if (!account?.provider || !account?.providerUserId) return null;
-  if (account.provider === "x") {
-    return signupStore.findBySocialAccount(account.provider, account.providerUserId)
-      || signupStore.findByXUserId(account.providerUserId);
-  }
-  return signupStore.findBySocialAccount(account.provider, account.providerUserId);
-}
-
 function assertNoSocialConflicts(accounts, targetSignupId = "") {
-  for (const account of accounts) {
-    const owner = findSocialAccountOwner(account);
-    if (owner?.id && owner.id !== targetSignupId) {
-      throw new HttpError(409, `This ${getProviderLabel(account.provider)} account is already linked to another signup.`);
-    }
+  const conflict = findSocialConflict(signupStore, accounts, targetSignupId);
+  if (conflict) {
+    throw new HttpError(409, conflict.message || `This ${getProviderLabel(conflict.account?.provider)} account is already linked to another signup.`);
   }
 }
 
@@ -862,45 +821,6 @@ function buildCurrentVerification({ session, socialSessions, walletProof, coinMa
     ...socialVerification,
     coinMarketCap: { opened: Boolean(coinMarketCapOpened), verified: false }
   };
-}
-
-function mergeVerification(existingSignup, currentVerification, { hasXSession }) {
-  if (!existingSignup) return currentVerification;
-  const existing = parseJsonObject(existingSignup.verification_json);
-  const merged = {
-    ...existing,
-    ...currentVerification,
-    x: hasXSession ? currentVerification.x : existing.x || currentVerification.x,
-    coinMarketCap: {
-      ...(existing.coinMarketCap || {}),
-      ...currentVerification.coinMarketCap,
-      opened: Boolean(existing.coinMarketCap?.opened || currentVerification.coinMarketCap?.opened)
-    }
-  };
-
-  for (const provider of ["discord", "telegram", "linkedin", "github", "youtube"]) {
-    if (!currentVerification[provider]?.connected && existing[provider]) {
-      merged[provider] = existing[provider];
-    }
-  }
-
-  return merged;
-}
-
-function mergeSocialAccounts(existingAccounts = [], currentAccounts = []) {
-  const byProvider = new Map();
-  for (const account of existingAccounts) {
-    if (account?.provider && account?.providerUserId) byProvider.set(account.provider, account);
-  }
-  for (const account of currentAccounts) {
-    if (account?.provider && account?.providerUserId) byProvider.set(account.provider, account);
-  }
-  return [...byProvider.values()];
-}
-
-function getOptionalSummaryValue(value, fallback = "") {
-  const normalized = String(value || "").trim();
-  return normalized || fallback || undefined;
 }
 
 async function handleSignupComplete(request, response) {
