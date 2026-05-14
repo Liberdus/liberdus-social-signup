@@ -215,6 +215,76 @@ function createSignupController(context) {
     return socialProviders.buildSocialAccounts(socialSessions, now);
   }
 
+  function getAccountLabel(account) {
+    if (!account) return "";
+    if (account.provider === "x" && account.username) return `@${account.username}`;
+    if (account.provider === "telegram" && account.username) return `@${account.username}`;
+    if (account.provider === "github" && account.username) return `@${account.username}`;
+    return account.displayName || account.username || account.providerUserId || "account";
+  }
+
+  function getSocialAccountByProvider(signup, provider) {
+    return (signup?.socialAccounts || [])
+      .find((account) => account?.provider === provider && account.providerUserId) || null;
+  }
+
+  function getPendingSocialReplacements(targetSignupSerialized, currentSocialAccounts) {
+    if (!targetSignupSerialized?.id) return [];
+    return currentSocialAccounts
+      .map((account) => {
+        const savedAccount = getSocialAccountByProvider(targetSignupSerialized, account.provider);
+        if (!savedAccount || savedAccount.providerUserId === account.providerUserId) return null;
+        return {
+          accountType: "social",
+          provider: account.provider,
+          providerLabel: getProviderLabel(account.provider),
+          oldProviderUserId: savedAccount.providerUserId,
+          newProviderUserId: account.providerUserId,
+          oldLabel: getAccountLabel(savedAccount),
+          newLabel: getAccountLabel(account)
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function normalizeConfirmedReplacements(confirmations = []) {
+    return Array.isArray(confirmations)
+      ? confirmations.map((confirmation) => ({
+          accountType: String(confirmation.accountType || confirmation.type || "social").trim().toLowerCase(),
+          provider: String(confirmation.provider || "").trim().toLowerCase(),
+          oldProviderUserId: String(confirmation.oldProviderUserId || "").trim(),
+          newProviderUserId: String(confirmation.newProviderUserId || "").trim()
+        }))
+      : [];
+  }
+
+  function isReplacementConfirmed(replacement, confirmations) {
+    return confirmations.some((confirmation) => (
+      confirmation.accountType === replacement.accountType
+      && confirmation.provider === replacement.provider
+      && confirmation.oldProviderUserId === replacement.oldProviderUserId
+      && confirmation.newProviderUserId === replacement.newProviderUserId
+    ));
+  }
+
+  function getUnconfirmedReplacements(replacements, confirmations) {
+    return replacements.filter((replacement) => !isReplacementConfirmed(replacement, confirmations));
+  }
+
+  function buildReplacementAuditEvents({ replacements, walletAddress, request, now }) {
+    return replacements.map((replacement) => ({
+      ...replacement,
+      authorizedWalletAddress: walletAddress,
+      ipAddress: normalizeText(getClientIp(request), 80),
+      userAgent: normalizeText(request.headers["user-agent"], 500),
+      createdAt: now,
+      rawContext: {
+        reason: "signup_update",
+        providerLabel: replacement.providerLabel
+      }
+    }));
+  }
+
   function assertNoSocialConflicts(accounts, targetSignupId = "") {
     const conflict = findSocialConflict(signupStore, accounts, targetSignupId);
     if (conflict) {
@@ -282,6 +352,18 @@ function createSignupController(context) {
     assertNoSocialConflicts(currentSocialAccounts, targetSignupId);
 
     const targetSignupSerialized = targetSignup ? signupStore.serializeSignup(targetSignup) : null;
+    const pendingReplacements = getPendingSocialReplacements(targetSignupSerialized, currentSocialAccounts);
+    const confirmedReplacements = normalizeConfirmedReplacements(body.confirmedReplacements);
+    const unconfirmedReplacements = getUnconfirmedReplacements(pendingReplacements, confirmedReplacements);
+    if (unconfirmedReplacements.length > 0) {
+      writeJson(response, 409, {
+        error: "Confirm account replacement before updating this signup.",
+        replacementRequired: true,
+        replacements: unconfirmedReplacements
+      });
+      return;
+    }
+
     if (!hasRequiredSocialAccount(currentSocialAccounts) && !signupHasRequiredSocial(targetSignupSerialized)) {
       throw new HttpError(400, "Connect X, Telegram, Discord, or LinkedIn before submitting.");
     }
@@ -321,7 +403,13 @@ function createSignupController(context) {
       submittedAt: now,
       createdAt: targetSignup?.created_at || now,
       updatedAt: now,
-      socialAccounts: mergedSocialAccounts
+      socialAccounts: mergedSocialAccounts,
+      accountReplacements: buildReplacementAuditEvents({
+        replacements: pendingReplacements,
+        walletAddress,
+        request,
+        now
+      })
     };
 
     try {

@@ -127,6 +127,39 @@ test("updateSignup replaces account rows for the signup", (t) => {
   assert.equal(store.findBySocialAccount("discord", "discord-new").id, created.id);
 });
 
+test("updateSignup records account replacement history", (t) => {
+  const store = withTempStore(t);
+  const created = store.saveSignup(makeSignupInput({
+    socialAccounts: [makeSocialAccount({ providerUserId: "discord-old", username: "old" })]
+  }));
+
+  const updated = store.updateSignup(makeSignupInput({
+    id: created.id,
+    walletAddress: created.walletAddress,
+    createdAt: created.createdAt,
+    socialAccounts: [makeSocialAccount({ providerUserId: "discord-new", username: "new" })],
+    accountReplacements: [{
+      accountType: "social",
+      provider: "discord",
+      oldProviderUserId: "discord-old",
+      newProviderUserId: "discord-new",
+      oldLabel: "old",
+      newLabel: "new",
+      authorizedWalletAddress: created.walletAddress,
+      ipAddress: "127.0.0.1",
+      userAgent: "node-test",
+      rawContext: { reason: "signup_update" }
+    }]
+  }));
+
+  assert.equal(updated.replacementHistory.length, 1);
+  assert.equal(updated.replacementHistory[0].provider, "discord");
+  assert.equal(updated.replacementHistory[0].oldProviderUserId, "discord-old");
+  assert.equal(updated.replacementHistory[0].newProviderUserId, "discord-new");
+  assert.equal(updated.replacementHistory[0].rawContext.reason, "signup_update");
+  assert.equal(store.getStats().accountReplacementCount, 1);
+});
+
 test("wallet addresses are unique case-insensitively", (t) => {
   const store = withTempStore(t);
   store.saveSignup(makeSignupInput({ walletAddress: WALLETS.one }));

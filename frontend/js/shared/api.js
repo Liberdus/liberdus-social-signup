@@ -27,7 +27,10 @@ export async function apiFetch(config, path, options = {}) {
   });
   const payload = await parseJsonResponse(response);
   if (!response.ok) {
-    throw new Error(getErrorMessage(payload, `HTTP ${response.status}`));
+    const error = new Error(getErrorMessage(payload, `HTTP ${response.status}`));
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
   return payload;
 }

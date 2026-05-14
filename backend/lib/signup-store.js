@@ -51,7 +51,28 @@ function serializeSocialAccount(row, verifications = []) {
   };
 }
 
-function serializeSignup(row, { socialAccounts = [] } = {}) {
+function serializeAccountReplacement(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    signupId: row.signup_id,
+    accountType: row.account_type,
+    provider: row.provider || "",
+    oldProviderUserId: row.old_provider_user_id || "",
+    newProviderUserId: row.new_provider_user_id || "",
+    oldLabel: row.old_label || "",
+    newLabel: row.new_label || "",
+    authorizedWalletAddress: row.authorized_wallet_address || "",
+    authorizedProvider: row.authorized_provider || "",
+    authorizedProviderUserId: row.authorized_provider_user_id || "",
+    ipAddress: row.ip_address || "",
+    userAgent: row.user_agent || "",
+    createdAt: row.created_at,
+    rawContext: parseJsonObject(row.raw_context_json)
+  };
+}
+
+function serializeSignup(row, { socialAccounts = [], replacementHistory = [] } = {}) {
   if (!row) return null;
 
   const verification = parseJsonObject(row.verification_json);
@@ -74,6 +95,7 @@ function serializeSignup(row, { socialAccounts = [] } = {}) {
     notes: row.notes || "",
     verification,
     socialAccounts,
+    replacementHistory,
     status: row.status,
     submittedAt: row.submitted_at,
     createdAt: row.created_at,
@@ -244,6 +266,42 @@ function createSignupStore(db) {
     )
   `);
 
+  const insertAccountReplacement = db.prepare(`
+    INSERT INTO signup_account_replacements (
+      id,
+      signup_id,
+      account_type,
+      provider,
+      old_provider_user_id,
+      new_provider_user_id,
+      old_label,
+      new_label,
+      authorized_wallet_address,
+      authorized_provider,
+      authorized_provider_user_id,
+      ip_address,
+      user_agent,
+      created_at,
+      raw_context_json
+    ) VALUES (
+      @id,
+      @signupId,
+      @accountType,
+      @provider,
+      @oldProviderUserId,
+      @newProviderUserId,
+      @oldLabel,
+      @newLabel,
+      @authorizedWalletAddress,
+      @authorizedProvider,
+      @authorizedProviderUserId,
+      @ipAddress,
+      @userAgent,
+      @createdAt,
+      @rawContextJson
+    )
+  `);
+
   const getById = db.prepare("SELECT * FROM signups WHERE id = ?");
   const getByXUserId = db.prepare("SELECT * FROM signups WHERE x_user_id = ?");
   const getByWalletAddress = db.prepare("SELECT * FROM signups WHERE LOWER(wallet_address) = LOWER(?)");
@@ -261,9 +319,16 @@ function createSignupStore(db) {
     WHERE social_account_id = ?
     ORDER BY checked_at DESC, created_at DESC
   `);
+  const getAccountReplacementsBySignupId = db.prepare(`
+    SELECT *
+    FROM signup_account_replacements
+    WHERE signup_id = ?
+    ORDER BY created_at DESC
+  `);
   const countAll = db.prepare("SELECT COUNT(*) AS count FROM signups");
   const countSocialAccounts = db.prepare("SELECT COUNT(*) AS count FROM signup_social_accounts");
   const countSocialVerifications = db.prepare("SELECT COUNT(*) AS count FROM signup_social_verifications");
+  const countAccountReplacements = db.prepare("SELECT COUNT(*) AS count FROM signup_account_replacements");
   const deleteSocialVerificationsBySignupId = db.prepare(`
     DELETE FROM signup_social_verifications
     WHERE social_account_id IN (
@@ -282,7 +347,8 @@ function createSignupStore(db) {
         return order || left.provider.localeCompare(right.provider);
       })
       .map((account) => serializeSocialAccount(account, getSocialVerificationsByAccountId.all(account.id).map(serializeSocialVerification)));
-    return serializeSignup(row, { socialAccounts });
+    const replacementHistory = getAccountReplacementsBySignupId.all(row.id).map(serializeAccountReplacement);
+    return serializeSignup(row, { socialAccounts, replacementHistory });
   }
 
   function saveSocialAccounts(signupId, accounts = []) {
@@ -325,6 +391,31 @@ function createSignupStore(db) {
     }
   }
 
+  function saveAccountReplacements(signupId, replacements = []) {
+    for (const replacement of replacements) {
+      const accountType = String(replacement.accountType || "").trim().toLowerCase();
+      if (!accountType) continue;
+      const now = replacement.createdAt || new Date().toISOString();
+      insertAccountReplacement.run({
+        id: replacement.id || crypto.randomUUID(),
+        signupId,
+        accountType,
+        provider: String(replacement.provider || "").trim().toLowerCase(),
+        oldProviderUserId: String(replacement.oldProviderUserId || "").trim(),
+        newProviderUserId: String(replacement.newProviderUserId || "").trim(),
+        oldLabel: String(replacement.oldLabel || "").trim(),
+        newLabel: String(replacement.newLabel || "").trim(),
+        authorizedWalletAddress: String(replacement.authorizedWalletAddress || "").trim(),
+        authorizedProvider: String(replacement.authorizedProvider || "").trim().toLowerCase(),
+        authorizedProviderUserId: String(replacement.authorizedProviderUserId || "").trim(),
+        ipAddress: String(replacement.ipAddress || "").trim(),
+        userAgent: String(replacement.userAgent || "").trim(),
+        createdAt: now,
+        rawContextJson: stringifyJsonObject(replacement.rawContext)
+      });
+    }
+  }
+
   const saveSignupTransaction = db.transaction((input) => {
     const { socialAccounts = [], ...signupInput } = input;
     insertSignup.run(signupInput);
@@ -337,7 +428,7 @@ function createSignupStore(db) {
   }
 
   const updateSignupTransaction = db.transaction((input) => {
-    const { socialAccounts = [], ...signupInput } = input;
+    const { socialAccounts = [], accountReplacements = [], ...signupInput } = input;
     updateSignupStatement.run({
       ...signupInput,
       xUserId: signupInput.xUserId || null,
@@ -356,6 +447,7 @@ function createSignupStore(db) {
     deleteSocialVerificationsBySignupId.run(input.id);
     deleteSocialAccountsBySignupId.run(input.id);
     saveSocialAccounts(input.id, socialAccounts);
+    saveAccountReplacements(input.id, accountReplacements);
     return getById.get(input.id);
   });
 
@@ -455,6 +547,7 @@ function createSignupStore(db) {
       signupCount: countAll.get().count,
       socialAccountCount: countSocialAccounts.get().count,
       socialVerificationCount: countSocialVerifications.get().count,
+      accountReplacementCount: countAccountReplacements.get().count,
       latestSignupAt: db.prepare("SELECT MAX(submitted_at) AS value FROM signups").get().value || null
     };
   }

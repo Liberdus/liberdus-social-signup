@@ -60,6 +60,31 @@ function addSocialSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_signup_social_verifications_check_status
       ON signup_social_verifications(check_type, status);
+
+    CREATE TABLE IF NOT EXISTS signup_account_replacements (
+      id TEXT PRIMARY KEY,
+      signup_id TEXT NOT NULL,
+      account_type TEXT NOT NULL,
+      provider TEXT,
+      old_provider_user_id TEXT,
+      new_provider_user_id TEXT,
+      old_label TEXT,
+      new_label TEXT,
+      authorized_wallet_address TEXT,
+      authorized_provider TEXT,
+      authorized_provider_user_id TEXT,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at TEXT NOT NULL,
+      raw_context_json TEXT NOT NULL DEFAULT '{}',
+      FOREIGN KEY (signup_id) REFERENCES signups(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_signup_account_replacements_signup_id
+      ON signup_account_replacements(signup_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_signup_account_replacements_provider
+      ON signup_account_replacements(provider, created_at DESC);
   `);
 }
 

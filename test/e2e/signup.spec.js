@@ -149,3 +149,55 @@ test("loads saved socials by signed wallet", async ({ page }) => {
   await expect(page.locator("#discordAuthButton")).toHaveText("Change");
   await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
 });
+
+test("confirms replacing a saved social account", async ({ page }) => {
+  const wallet = createTestWallet();
+  await installFakeWallet(page, wallet);
+  await page.goto("./");
+  await createDiscordSession(page, { id: "discord-old", username: "olddiscord", displayName: "olddiscord" });
+  await page.reload();
+  await connectWallet(page);
+  await page.locator("#submitButton").click();
+  await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
+
+  await createDiscordSession(page, { id: "discord-new", username: "newdiscord", displayName: "newdiscord" });
+  await page.reload();
+  await connectWallet(page);
+  await page.locator("#loadSignupButton").click();
+
+  const unconfirmed = await page.evaluate(async ({ url, walletAddress }) => {
+    const challengeResponse = await fetch(`${url}/api/signup/challenge`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress, chainId: 1 })
+    });
+    const challenge = await challengeResponse.json();
+    const signature = await window.__e2eSignMessage(challenge.message);
+    const completeResponse = await fetch(`${url}/api/signup/complete`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        walletAddress,
+        challengeId: challenge.challengeId,
+        signature
+      })
+    });
+    return {
+      status: completeResponse.status,
+      body: await completeResponse.json()
+    };
+  }, { url: apiBaseUrl, walletAddress: wallet.address });
+  expect(unconfirmed.status).toBe(409);
+  expect(unconfirmed.body.replacementRequired).toBe(true);
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("Discord: olddiscord -> newdiscord");
+    await dialog.accept();
+  });
+  await page.locator("#submitButton").click();
+
+  await expect(page.locator("#discordStatusText")).toContainText("newdiscord");
+  await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
+});

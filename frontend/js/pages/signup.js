@@ -90,6 +90,14 @@ const els = {
 
 const providerElements = new Map();
 const REQUIRED_SOCIAL_PROVIDER_IDS = new Set(["x", "discord", "telegram", "linkedin"]);
+const PROVIDER_LABELS = {
+  x: "X",
+  discord: "Discord",
+  telegram: "Telegram",
+  linkedin: "LinkedIn",
+  github: "GitHub",
+  youtube: "YouTube"
+};
 
 const toast = createToastController({
   element: els.signupToast,
@@ -347,6 +355,95 @@ function getSavedAccountName(account, fallback = "account") {
   if (account.provider === "telegram" && account.username) return `@${account.username}`;
   if (account.provider === "github" && account.username) return `@${account.username}`;
   return account.displayName || account.username || fallback;
+}
+
+function getCurrentSocialAccount(providerId) {
+  const provider = String(providerId || "").trim();
+  if (provider === "x" && runtime.xSession?.profile?.id) {
+    const profile = runtime.xSession.profile;
+    return {
+      accountType: "social",
+      provider,
+      providerLabel: PROVIDER_LABELS[provider] || provider,
+      providerUserId: String(profile.id),
+      label: profile.username ? `@${profile.username}` : profile.name || String(profile.id)
+    };
+  }
+
+  const checklistProvider = checklistProviders.find((item) => item.id === provider);
+  const session = checklistProvider?.sessionKey ? runtime[checklistProvider.sessionKey] : null;
+  const profile = session?.profile || null;
+  if (!profile?.id) return null;
+
+  const youtubeChannel = provider === "youtube" ? profile.youtubeChannel : null;
+  const providerUserId = youtubeChannel?.id || profile.id;
+  const label = provider === "telegram" && profile.username
+    ? `@${profile.username}`
+    : provider === "github" && profile.username
+      ? `@${profile.username}`
+      : provider === "youtube" && youtubeChannel?.handle
+        ? `@${youtubeChannel.handle}`
+        : youtubeChannel?.title
+          || profile.displayName
+          || profile.name
+          || profile.username
+          || providerUserId;
+
+  return {
+    accountType: "social",
+    provider,
+    providerLabel: PROVIDER_LABELS[provider] || checklistProvider?.title || provider,
+    providerUserId: String(providerUserId),
+    label
+  };
+}
+
+function getPendingSocialReplacements() {
+  if (!runtime.existingSignup?.id) return [];
+  const providerIds = ["x", ...checklistProviders.map((provider) => provider.id)];
+  return providerIds
+    .map((providerId) => {
+      const savedAccount = getSavedSocialAccount(providerId);
+      const currentAccount = getCurrentSocialAccount(providerId);
+      if (!savedAccount || !currentAccount || savedAccount.providerUserId === currentAccount.providerUserId) return null;
+      return {
+        accountType: "social",
+        provider: providerId,
+        providerLabel: currentAccount.providerLabel,
+        oldProviderUserId: savedAccount.providerUserId,
+        newProviderUserId: currentAccount.providerUserId,
+        oldLabel: getSavedAccountName(savedAccount, savedAccount.providerUserId),
+        newLabel: currentAccount.label
+      };
+    })
+    .filter(Boolean);
+}
+
+function confirmPendingSocialReplacements() {
+  const replacements = getPendingSocialReplacements();
+  if (replacements.length === 0) return [];
+
+  const lines = replacements.map((replacement) => (
+    `${replacement.providerLabel}: ${replacement.oldLabel} -> ${replacement.newLabel}`
+  ));
+  const confirmed = window.confirm([
+    "Update this saved signup with the newly connected account?",
+    "",
+    ...lines,
+    "",
+    "This will replace the saved account after you sign with your wallet."
+  ].join("\n"));
+  if (!confirmed) {
+    showMessage("Account replacement canceled.");
+    return null;
+  }
+
+  return replacements.map((replacement) => ({
+    accountType: replacement.accountType,
+    provider: replacement.provider,
+    oldProviderUserId: replacement.oldProviderUserId,
+    newProviderUserId: replacement.newProviderUserId
+  }));
 }
 
 function getSavedProviderStatusText(provider, account) {
@@ -626,6 +723,9 @@ async function submitSignup() {
     throw new Error("Connect X, Telegram, Discord, or LinkedIn first.");
   }
 
+  const confirmedReplacements = confirmPendingSocialReplacements();
+  if (confirmedReplacements === null) return;
+
   runtime.isSubmitting = true;
   runtime.isVerifyingWallet = true;
   syncUi();
@@ -642,7 +742,8 @@ async function submitSignup() {
         walletAddress: walletSignature.walletAddress,
         challengeId: walletSignature.challengeId,
         signature: walletSignature.signature,
-        coinMarketCapOpened: runtime.coinMarketCapOpened
+        coinMarketCapOpened: runtime.coinMarketCapOpened,
+        confirmedReplacements
       })
     });
 
@@ -654,6 +755,11 @@ async function submitSignup() {
     };
     const savedName = result.signup?.xUsername ? `@${result.signup.xUsername}` : formatAddressShort(result.signup?.walletAddress || walletSignature.walletAddress);
     showMessage(result.updated ? "Signup updated." : `Signup received for ${savedName}.`, "success");
+  } catch (error) {
+    if (error?.payload?.replacementRequired) {
+      throw new Error("This update would replace a saved account. Load the saved signup first so you can review and confirm the change.");
+    }
+    throw error;
   } finally {
     runtime.isVerifyingWallet = false;
     runtime.isSubmitting = false;
