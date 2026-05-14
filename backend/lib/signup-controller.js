@@ -223,6 +223,11 @@ function createSignupController(context) {
     return account.displayName || account.username || account.providerUserId || "account";
   }
 
+  function getWalletLabel(walletAddress) {
+    const address = String(walletAddress || "").trim();
+    return address || "wallet";
+  }
+
   function getSocialAccountByProvider(signup, provider) {
     return (signup?.socialAccounts || [])
       .find((account) => account?.provider === provider && account.providerUserId) || null;
@@ -245,6 +250,23 @@ function createSignupController(context) {
         };
       })
       .filter(Boolean);
+  }
+
+  function getPendingWalletReplacement(targetSignupSerialized, walletAddress) {
+    if (!targetSignupSerialized?.id || !targetSignupSerialized.walletAddress) return null;
+    const oldWalletAddress = requireWalletAddress(targetSignupSerialized.walletAddress);
+    const newWalletAddress = requireWalletAddress(walletAddress);
+    if (oldWalletAddress === newWalletAddress) return null;
+
+    return {
+      accountType: "wallet",
+      provider: "wallet",
+      providerLabel: "Wallet",
+      oldProviderUserId: oldWalletAddress,
+      newProviderUserId: newWalletAddress,
+      oldLabel: getWalletLabel(oldWalletAddress),
+      newLabel: getWalletLabel(newWalletAddress)
+    };
   }
 
   function normalizeConfirmedReplacements(confirmations = []) {
@@ -271,16 +293,19 @@ function createSignupController(context) {
     return replacements.filter((replacement) => !isReplacementConfirmed(replacement, confirmations));
   }
 
-  function buildReplacementAuditEvents({ replacements, walletAddress, request, now }) {
+  function buildReplacementAuditEvents({ replacements, walletAddress, authenticatedWalletAddress, request, now }) {
     return replacements.map((replacement) => ({
       ...replacement,
-      authorizedWalletAddress: walletAddress,
+      authorizedWalletAddress: replacement.accountType === "wallet"
+        ? authenticatedWalletAddress || walletAddress
+        : walletAddress,
       ipAddress: normalizeText(getClientIp(request), 80),
       userAgent: normalizeText(request.headers["user-agent"], 500),
       createdAt: now,
       rawContext: {
         reason: "signup_update",
-        providerLabel: replacement.providerLabel
+        providerLabel: replacement.providerLabel,
+        signedWalletAddress: walletAddress
       }
     }));
   }
@@ -352,7 +377,10 @@ function createSignupController(context) {
     assertNoSocialConflicts(currentSocialAccounts, targetSignupId);
 
     const targetSignupSerialized = targetSignup ? signupStore.serializeSignup(targetSignup) : null;
-    const pendingReplacements = getPendingSocialReplacements(targetSignupSerialized, currentSocialAccounts);
+    const pendingReplacements = [
+      getPendingWalletReplacement(targetSignupSerialized, walletAddress),
+      ...getPendingSocialReplacements(targetSignupSerialized, currentSocialAccounts)
+    ].filter(Boolean);
     const confirmedReplacements = normalizeConfirmedReplacements(body.confirmedReplacements);
     const unconfirmedReplacements = getUnconfirmedReplacements(pendingReplacements, confirmedReplacements);
     if (unconfirmedReplacements.length > 0) {
@@ -407,6 +435,7 @@ function createSignupController(context) {
       accountReplacements: buildReplacementAuditEvents({
         replacements: pendingReplacements,
         walletAddress,
+        authenticatedWalletAddress: browserSession.authenticatedWalletAddress,
         request,
         now
       })

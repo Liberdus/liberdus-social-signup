@@ -176,10 +176,12 @@ function isExistingSignupForCurrentWallet() {
   return normalizeAddress(runtime.existingSignup.walletAddress) === normalizeAddress(runtime.account);
 }
 
-function clearLoadedSignupIfWalletChanged() {
-  if (!runtime.existingSignup || isExistingSignupForCurrentWallet()) return;
-  runtime.existingSignup = null;
-  runtime.walletProof = null;
+function hasPendingWalletReplacement() {
+  return Boolean(
+    runtime.existingSignup?.walletAddress
+    && runtime.account
+    && !isExistingSignupForCurrentWallet()
+  );
 }
 
 function setConflict(message) {
@@ -419,8 +421,30 @@ function getPendingSocialReplacements() {
     .filter(Boolean);
 }
 
-function confirmPendingSocialReplacements() {
-  const replacements = getPendingSocialReplacements();
+function getPendingWalletReplacement() {
+  if (!hasPendingWalletReplacement()) return null;
+  const oldWalletAddress = normalizeAddress(runtime.existingSignup.walletAddress);
+  const newWalletAddress = normalizeAddress(runtime.account);
+  return {
+    accountType: "wallet",
+    provider: "wallet",
+    providerLabel: "Wallet",
+    oldProviderUserId: oldWalletAddress,
+    newProviderUserId: newWalletAddress,
+    oldLabel: formatAddressShort(oldWalletAddress),
+    newLabel: formatAddressShort(newWalletAddress)
+  };
+}
+
+function getPendingReplacements() {
+  return [
+    getPendingWalletReplacement(),
+    ...getPendingSocialReplacements()
+  ].filter(Boolean);
+}
+
+function confirmPendingReplacements() {
+  const replacements = getPendingReplacements();
   if (replacements.length === 0) return [];
 
   const lines = replacements.map((replacement) => (
@@ -463,8 +487,8 @@ function toggleWalletMenu() {
 
 function syncWalletUi() {
   const hasWallet = Boolean(runtime.account);
-  clearLoadedSignupIfWalletChanged();
   const loadedForWallet = isExistingSignupForCurrentWallet();
+  const walletReplacementPending = hasPendingWalletReplacement();
 
   if (runtime.isConnectingWallet) {
     els.connectButton.textContent = "Connecting...";
@@ -475,7 +499,7 @@ function syncWalletUi() {
   }
 
   els.connectButton.disabled = runtime.isConnectingWallet || runtime.isSubmitting;
-  els.loadSignupButton.hidden = !hasWallet || loadedForWallet;
+  els.loadSignupButton.hidden = !hasWallet || Boolean(runtime.existingSignup) || loadedForWallet;
   els.loadSignupButton.disabled = runtime.isLoadingSignup || runtime.isSubmitting;
   els.loadSignupButton.textContent = runtime.isLoadingSignup ? "Loading..." : "Load saved";
   els.walletMenuAddress.textContent = hasWallet ? formatAddressShort(runtime.account) : "-";
@@ -486,6 +510,8 @@ function syncWalletUi() {
     els.walletStatusText.textContent = "Not connected";
   } else if (loadedForWallet) {
     els.walletStatusText.textContent = `${formatAddressShort(runtime.account)} connected; saved signup loaded`;
+  } else if (walletReplacementPending) {
+    els.walletStatusText.textContent = `${formatAddressShort(runtime.account)} connected; will replace saved wallet ${formatAddressShort(runtime.existingSignup.walletAddress)} on update`;
   } else {
     els.walletStatusText.textContent = `${formatAddressShort(runtime.account)} connected; load saved accounts or submit with a social sign-in`;
   }
@@ -588,7 +614,10 @@ function syncExistingSignupUi() {
     ? `${requiredProvider.provider}: ${getSavedAccountName(requiredProvider)}`
     : "no required social";
   const status = signup.status || "received";
-  const summary = `${username} with ${wallet}, status ${status}`;
+  const replacement = hasPendingWalletReplacement()
+    ? `, wallet change pending to ${formatAddressShort(runtime.account)}`
+    : "";
+  const summary = `${username} with ${wallet}${replacement}, status ${status}`;
   els.existingSignupText.textContent = summary;
 }
 
@@ -604,7 +633,9 @@ function syncSubmitUi() {
     els.submissionStatus.textContent = "Conflict";
     els.submissionStatus.dataset.tone = "error";
   } else if (runtime.existingSignup) {
-    els.proofHint.textContent = "Existing signup loaded. Submit and sign to save updates.";
+    els.proofHint.textContent = hasPendingWalletReplacement()
+      ? "Wallet change pending. Submit and sign with the new wallet to save the update."
+      : "Existing signup loaded. Submit and sign to save updates.";
     els.submissionStatus.textContent = "Loaded";
     els.submissionStatus.dataset.tone = "ready";
   } else if (ready) {
@@ -723,7 +754,7 @@ async function submitSignup() {
     throw new Error("Connect X, Telegram, Discord, or LinkedIn first.");
   }
 
-  const confirmedReplacements = confirmPendingSocialReplacements();
+  const confirmedReplacements = confirmPendingReplacements();
   if (confirmedReplacements === null) return;
 
   runtime.isSubmitting = true;
@@ -914,12 +945,11 @@ function bindEvents() {
       const nextAccount = normalizeAddress(runtime.account);
       if (previousProofAddress !== nextAccount) {
         runtime.walletProof = null;
-        runtime.existingSignup = null;
         runtime.conflictMessage = "";
       }
       if (previousAccount && nextAccount && previousAccount !== nextAccount) {
         showMessage(hadLoadedSignup
-          ? `Wallet changed to ${formatAddressShort(nextAccount)}. Saved signup state cleared.`
+          ? `Wallet changed to ${formatAddressShort(nextAccount)}. Submit and sign to replace the saved wallet.`
           : `Wallet changed to ${formatAddressShort(nextAccount)}.`
         );
       }

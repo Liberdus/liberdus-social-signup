@@ -135,7 +135,7 @@ test("updateSignup records account replacement history", (t) => {
 
   const updated = store.updateSignup(makeSignupInput({
     id: created.id,
-    walletAddress: created.walletAddress,
+    walletAddress: WALLETS.two,
     createdAt: created.createdAt,
     socialAccounts: [makeSocialAccount({ providerUserId: "discord-new", username: "new" })],
     accountReplacements: [{
@@ -149,15 +149,32 @@ test("updateSignup records account replacement history", (t) => {
       ipAddress: "127.0.0.1",
       userAgent: "node-test",
       rawContext: { reason: "signup_update" }
+    }, {
+      accountType: "wallet",
+      provider: "wallet",
+      oldProviderUserId: WALLETS.one,
+      newProviderUserId: WALLETS.two,
+      oldLabel: WALLETS.one,
+      newLabel: WALLETS.two,
+      authorizedWalletAddress: WALLETS.one,
+      ipAddress: "127.0.0.1",
+      userAgent: "node-test",
+      rawContext: { reason: "signup_update", signedWalletAddress: WALLETS.two }
     }]
   }));
 
-  assert.equal(updated.replacementHistory.length, 1);
-  assert.equal(updated.replacementHistory[0].provider, "discord");
-  assert.equal(updated.replacementHistory[0].oldProviderUserId, "discord-old");
-  assert.equal(updated.replacementHistory[0].newProviderUserId, "discord-new");
-  assert.equal(updated.replacementHistory[0].rawContext.reason, "signup_update");
-  assert.equal(store.getStats().accountReplacementCount, 1);
+  assert.equal(updated.replacementHistory.length, 2);
+  const socialReplacement = updated.replacementHistory.find((replacement) => replacement.accountType === "social");
+  const walletReplacement = updated.replacementHistory.find((replacement) => replacement.accountType === "wallet");
+  assert.equal(socialReplacement.provider, "discord");
+  assert.equal(socialReplacement.oldProviderUserId, "discord-old");
+  assert.equal(socialReplacement.newProviderUserId, "discord-new");
+  assert.equal(socialReplacement.rawContext.reason, "signup_update");
+  assert.equal(walletReplacement.provider, "wallet");
+  assert.equal(walletReplacement.oldProviderUserId, WALLETS.one);
+  assert.equal(walletReplacement.newProviderUserId, WALLETS.two);
+  assert.equal(walletReplacement.rawContext.signedWalletAddress, WALLETS.two);
+  assert.equal(store.getStats().accountReplacementCount, 2);
 });
 
 test("wallet addresses are unique case-insensitively", (t) => {

@@ -11,12 +11,19 @@ function createTestWallet() {
   return Wallet.createRandom();
 }
 
-async function installFakeWallet(page, wallet) {
-  await page.exposeFunction("__e2eSignMessage", async (message) => {
+async function installFakeWallet(page, walletOrWallets) {
+  const wallets = Array.isArray(walletOrWallets) ? walletOrWallets : [walletOrWallets];
+  const defaultWallet = wallets[0];
+  const walletByAddress = new Map(wallets.map((wallet) => [wallet.address.toLowerCase(), wallet]));
+
+  await page.exposeFunction("__e2eSignMessage", async (input) => {
+    const message = typeof input === "object" && input !== null ? input.message : input;
+    const requestedAccount = typeof input === "object" && input !== null ? String(input.account || "").toLowerCase() : "";
+    const signer = walletByAddress.get(requestedAccount) || defaultWallet;
     const payload = typeof message === "string" && isHexString(message)
       ? getBytes(message)
       : message;
-    return wallet.signMessage(payload);
+    return signer.signMessage(payload);
   });
 
   await page.addInitScript(({ address }) => {
@@ -35,7 +42,7 @@ async function installFakeWallet(page, wallet) {
         if (method === "eth_requestAccounts" || method === "eth_accounts") return account ? [account] : [];
         if (method === "eth_chainId") return "0x1";
         if (method === "net_version") return "1";
-        if (method === "personal_sign") return window.__e2eSignMessage(params[0]);
+        if (method === "personal_sign") return window.__e2eSignMessage({ message: params[0], account });
         if (method === "wallet_switchEthereumChain" || method === "wallet_addEthereumChain") return null;
         throw new Error(`Unsupported fake wallet method: ${method}`);
       },
@@ -54,7 +61,7 @@ async function installFakeWallet(page, wallet) {
         emit("accountsChanged", account ? [account] : []);
       }
     };
-  }, { address: wallet.address });
+  }, { address: defaultWallet.address });
 }
 
 async function connectWallet(page) {
@@ -199,5 +206,59 @@ test("confirms replacing a saved social account", async ({ page }) => {
   await page.locator("#submitButton").click();
 
   await expect(page.locator("#discordStatusText")).toContainText("newdiscord");
+  await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
+});
+
+test("confirms replacing a saved wallet", async ({ page }) => {
+  const oldWallet = createTestWallet();
+  const newWallet = createTestWallet();
+  await installFakeWallet(page, [oldWallet, newWallet]);
+  await page.goto("./");
+  await createDiscordSession(page, { id: "discord-wallet-change", username: "walletdiscord", displayName: "walletdiscord" });
+  await page.reload();
+  await connectWallet(page);
+  await page.locator("#submitButton").click();
+  await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
+
+  await page.evaluate((nextAddress) => {
+    window.__e2eWallet.setAccount(nextAddress);
+  }, newWallet.address);
+  await expect(page.locator("#walletStatusText")).toContainText("will replace saved wallet");
+
+  const unconfirmed = await page.evaluate(async ({ url, walletAddress }) => {
+    const challengeResponse = await fetch(`${url}/api/signup/challenge`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress, chainId: 1 })
+    });
+    const challenge = await challengeResponse.json();
+    const signature = await window.__e2eSignMessage({ message: challenge.message, account: walletAddress });
+    const completeResponse = await fetch(`${url}/api/signup/complete`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        walletAddress,
+        challengeId: challenge.challengeId,
+        signature
+      })
+    });
+    return {
+      status: completeResponse.status,
+      body: await completeResponse.json()
+    };
+  }, { url: apiBaseUrl, walletAddress: newWallet.address });
+  expect(unconfirmed.status).toBe(409);
+  expect(unconfirmed.body.replacementRequired).toBe(true);
+  expect(unconfirmed.body.replacements[0].accountType).toBe("wallet");
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("Wallet:");
+    await dialog.accept();
+  });
+  await page.locator("#submitButton").click();
+
+  await expect(page.locator("#walletStatusText")).toContainText("saved signup loaded");
   await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
 });
