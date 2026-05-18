@@ -1051,15 +1051,16 @@ function syncProfileMeter({ ready, walletReady, requiredSocialReady, savedCurren
 }
 
 function syncChecklistLockUi() {
-  const walletReady = hasConnectedWallet();
-  els.xStatusRow.hidden = !walletReady;
-  els.optionalChecklist.hidden = !walletReady;
+  const walletVerified = Boolean(runtime.walletProof);
+  els.xStatusRow.hidden = !walletVerified;
+  els.optionalChecklist.hidden = !walletVerified;
 }
 
 function syncSubmitUi() {
   const walletReady = hasConnectedWallet();
+  const walletVerified = Boolean(runtime.walletProof);
   const requiredSocialReady = hasRequiredSocialSession();
-  const ready = walletReady && requiredSocialReady && !runtime.conflictMessage;
+  const ready = walletVerified && requiredSocialReady && !runtime.conflictMessage;
   const savedCurrent = Boolean(runtime.existingSignup?.id && !hasUnsavedSignupChanges());
   els.submitButton.disabled = !ready || runtime.isSubmitting;
   els.submitButton.textContent = runtime.isSubmitting ? "Signing..." : runtime.existingSignup ? "Update & Sign" : "Submit & Sign";
@@ -1125,6 +1126,8 @@ async function loadExistingSignupForWallet() {
     if (result.existingSignup?.id) {
       applyExistingSignup(result.existingSignup, "wallet");
       showMessage("Saved signup loaded.", "success");
+    } else if (runtime.existingSignup?.id && hasPendingWalletReplacement()) {
+      showMessage("Wallet signed. Submit and sign to replace the saved wallet.");
     } else {
       runtime.existingSignup = null;
       showMessage("No saved signup exists for this wallet yet.");
