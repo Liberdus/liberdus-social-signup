@@ -26,22 +26,6 @@ export const youTubeProvider = {
   isReady(session) {
     return Boolean(session?.subscription?.subscribed);
   },
-  getStatusText({ session, configured, config }) {
-    const profile = session?.profile || null;
-    const subscription = session?.subscription || null;
-    const name = getYouTubeName(profile);
-    const target = subscription?.targetChannelTitle
-      || subscription?.targetChannelHandle
-      || config.youtubeAuth?.targetChannelHandle
-      || "Liberdus";
-
-    if (subscription?.subscribed) return `${name} subscribed to ${target}`;
-    if (profile?.id && subscription?.error) return `${name} connected; subscription check is unavailable`;
-    if (profile?.id) return `${name} connected; subscribe to ${target} and recheck`;
-    return configured
-      ? "Subscribe to Liberdus on YouTube and connect your Google account."
-      : "YouTube sign-in is not configured.";
-  },
   getAuthButtonText({ connecting, session }) {
     if (connecting) return "Opening...";
     return session?.profile?.id ? "Recheck" : "Sign in";

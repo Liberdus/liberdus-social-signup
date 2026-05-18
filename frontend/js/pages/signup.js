@@ -43,6 +43,7 @@ const runtime = {
   isConnectingGitHub: false,
   isLoadingSignup: false,
   isSubmitting: false,
+  isAuthRedirecting: false,
   xSession: null,
   discordSession: null,
   telegramSession: null,
@@ -74,13 +75,22 @@ const els = {
   xStatusText: document.getElementById("xStatusText"),
   xAuthButton: document.getElementById("xAuthButton"),
   xDisconnectButton: document.getElementById("xDisconnectButton"),
+  xTaskList: document.querySelector('[aria-label="X tasks"]'),
   optionalChecklist: document.getElementById("optionalChecklist"),
   xChecklistLink: document.getElementById("xChecklistLink"),
   submitButton: document.getElementById("submitButton"),
-  proofHint: document.getElementById("proofHint"),
-  submissionStatus: document.getElementById("submissionStatus"),
-  existingSignupPanel: document.getElementById("existingSignupPanel"),
-  existingSignupText: document.getElementById("existingSignupText"),
+  profileTaskText: document.getElementById("profileTaskText"),
+  profileBarFill: document.getElementById("profileBarFill"),
+  profileGateText: document.getElementById("profileGateText"),
+  minimumWallet: document.getElementById("minimumWallet"),
+  minimumSocial: document.getElementById("minimumSocial"),
+  minimumSubmit: document.getElementById("minimumSubmit"),
+  walletConnectTaskRow: document.getElementById("walletConnectTaskRow"),
+  walletConnectTaskTitle: document.getElementById("walletConnectTaskTitle"),
+  walletConnectTaskDetail: document.getElementById("walletConnectTaskDetail"),
+  walletSignTaskRow: document.getElementById("walletSignTaskRow"),
+  walletSignTaskTitle: document.getElementById("walletSignTaskTitle"),
+  walletSignTaskDetail: document.getElementById("walletSignTaskDetail"),
   signupToast: document.getElementById("signupToast"),
   signupToastMessage: document.getElementById("signupToastMessage"),
   signupToastClose: document.getElementById("signupToastClose"),
@@ -97,6 +107,26 @@ const PROVIDER_LABELS = {
   linkedin: "LinkedIn",
   github: "GitHub",
   youtube: "YouTube"
+};
+
+const PROVIDER_MARKS = {
+  discord: "D",
+  telegram: "T",
+  linkedin: "in",
+  github: "GH",
+  youtube: "YT",
+  coinMarketCap: "CMC"
+};
+
+const STATUS_TEXT = {
+  wallet: "Connect and sign with your wallet.",
+  x: "Follow @Liberdus on X.com.",
+  discord: "Join the Liberdus Discord.",
+  telegram: "Join the Liberdus group on Telegram.",
+  linkedin: "Follow Liberdus on LinkedIn.",
+  github: "Star and follow Liberdus on GitHub.",
+  youtube: "Subscribe to Liberdus on YouTube.",
+  coinMarketCap: "Follow Liberdus on CoinMarketCap."
 };
 
 const toast = createToastController({
@@ -214,9 +244,114 @@ function setActionLinkDisabled(anchor, disabled) {
   anchor.tabIndex = disabled ? -1 : 0;
 }
 
+function setTaskState(element, state) {
+  if (!element) return;
+  element.dataset.state = state || "pending";
+}
+
+function setStatusNote(element, message = "", tone = "info") {
+  if (!element) return;
+  const hasMessage = Boolean(String(message || "").trim());
+  element.hidden = !hasMessage;
+  element.textContent = hasMessage ? message : "";
+  element.dataset.tone = tone;
+}
+
+function syncChecklistPill(row, isComplete) {
+  const pill = row?.querySelector(".required-pill, .choice-pill, .optional-pill");
+  if (!pill) return;
+  if (!pill.dataset.defaultLabel) {
+    pill.dataset.defaultLabel = pill.textContent;
+  }
+  if (isComplete) {
+    pill.dataset.state = "done";
+    pill.textContent = "Complete";
+    return;
+  }
+  delete pill.dataset.state;
+  pill.textContent = pill.dataset.defaultLabel;
+}
+
+function setTaskControlLabel(button, label) {
+  if (!button) return;
+  button.dataset.icon = "";
+  button.classList.remove("task-icon-button");
+  delete button.dataset.state;
+  button.textContent = label;
+  button.removeAttribute("aria-label");
+  button.removeAttribute("title");
+}
+
+function configureTaskAction(action, { label, hidden = false, disabled = false, icon = "" } = {}) {
+  if (!action) return null;
+  action.hidden = hidden;
+  action.disabled = disabled;
+  action.dataset.icon = icon;
+  action.classList.toggle("task-icon-button", Boolean(icon));
+  action.textContent = icon ? "" : label;
+  if (icon) {
+    action.setAttribute("aria-label", label);
+    action.title = label;
+  } else {
+    action.removeAttribute("aria-label");
+    action.removeAttribute("title");
+  }
+  return action;
+}
+
+function createTaskRow({ label, detail = "", state = "pending", actions = [], actionOnly = false, inlineActions = false }) {
+  const row = document.createElement("div");
+  row.className = "task-row";
+  row.dataset.state = state;
+  row.classList.toggle("task-row-action-only", actionOnly);
+  row.classList.toggle("task-row-inline-actions", inlineActions);
+
+  const check = document.createElement("span");
+  check.className = "task-check";
+  check.setAttribute("aria-hidden", "true");
+
+  const copy = document.createElement("span");
+  copy.className = "task-row-copy";
+
+  const actionGroup = document.createElement("span");
+  actionGroup.className = "task-row-actions";
+  actionGroup.append(...actions.filter(Boolean));
+
+  if (actionOnly) {
+    actionGroup.classList.add("task-row-primary-actions");
+    copy.append(actionGroup);
+    row.append(check, copy);
+    return row;
+  }
+
+  const titleLine = document.createElement("span");
+  titleLine.className = "task-row-title-line";
+  const title = document.createElement("span");
+  title.className = "task-row-title";
+  title.textContent = label;
+  titleLine.append(title);
+
+  if (inlineActions) {
+    actionGroup.classList.add("task-row-inline-action-group");
+    titleLine.append(actionGroup);
+  }
+
+  copy.append(titleLine);
+  if (detail) {
+    const detailElement = document.createElement("span");
+    detailElement.className = "task-row-detail";
+    detailElement.textContent = detail;
+    copy.append(detailElement);
+  }
+
+  row.append(check, copy);
+  if (!inlineActions) row.append(actionGroup);
+  return row;
+}
+
 function createProviderLink(provider, link) {
   const anchor = document.createElement("a");
-  anchor.className = "secondary nav-button checklist-link";
+  anchor.className = "task-control task-link";
   anchor.href = getConfiguredHref(link);
   anchor.target = "_blank";
   anchor.rel = "noreferrer noopener";
@@ -251,9 +386,10 @@ function renderProviderRows() {
     row.className = "checklist-item";
     row.id = `${provider.id}StatusRow`;
 
-    const dot = document.createElement("span");
-    dot.className = "status-dot";
-    dot.setAttribute("aria-hidden", "true");
+    const mark = document.createElement("span");
+    mark.className = `provider-mark provider-mark-${provider.id}`;
+    mark.setAttribute("aria-hidden", "true");
+    mark.textContent = PROVIDER_MARKS[provider.id] || provider.title.slice(0, 2);
 
     const copy = document.createElement("div");
     copy.className = "checklist-copy";
@@ -270,46 +406,49 @@ function renderProviderRows() {
 
     const statusText = document.createElement("p");
     statusText.id = `${provider.id}StatusText`;
-    statusText.textContent = "Connect a wallet first.";
+    statusText.className = "status-note";
+    statusText.hidden = true;
+
+    const taskList = document.createElement("div");
+    taskList.className = "task-list";
+    taskList.setAttribute("aria-label", `${provider.title} tasks`);
 
     titleRow.append(title, optional);
-    copy.append(titleRow, statusText);
+    copy.append(titleRow, statusText, taskList);
 
-    const actions = document.createElement("div");
-    actions.className = "checklist-actions button-row";
     const links = (provider.links || []).map((link) => createProviderLink(provider, link));
-    actions.append(...links);
 
     let authButton = null;
-    let disconnectButton = null;
+    let verifyButton = null;
     if (provider.start) {
       authButton = document.createElement("button");
       authButton.id = `${provider.id}AuthButton`;
       authButton.type = "button";
-      authButton.className = "secondary";
+      authButton.className = "task-control";
       authButton.textContent = "Sign in";
       authButton.disabled = true;
-      actions.append(authButton);
     }
-    if (provider.disconnect) {
-      disconnectButton = document.createElement("button");
-      disconnectButton.id = `${provider.id}DisconnectButton`;
-      disconnectButton.type = "button";
-      disconnectButton.className = "ghost";
-      disconnectButton.textContent = "Sign out";
-      disconnectButton.hidden = true;
-      disconnectButton.disabled = true;
-      actions.append(disconnectButton);
+    if (provider.id === "github" || provider.id === "youtube") {
+      verifyButton = document.createElement("button");
+      verifyButton.id = `${provider.id}VerifyButton`;
+      verifyButton.type = "button";
+      verifyButton.className = "task-control task-icon-button";
+      verifyButton.dataset.icon = "refresh";
+      verifyButton.setAttribute("aria-label", `Recheck ${provider.title}`);
+      verifyButton.title = `Recheck ${provider.title}`;
+      verifyButton.hidden = true;
+      verifyButton.disabled = true;
     }
 
     providerElements.set(provider.id, {
       row,
       statusText,
+      taskList,
       links,
       authButton,
-      disconnectButton
+      verifyButton
     });
-    row.append(dot, copy, actions);
+    row.append(mark, copy);
     fragment.append(row);
   }
 
@@ -443,6 +582,50 @@ function getPendingReplacements() {
   ].filter(Boolean);
 }
 
+function hasUnsavedSocialChanges() {
+  if (!runtime.existingSignup?.id) return false;
+  const providerIds = ["x", ...checklistProviders.map((provider) => provider.id)];
+  for (const providerId of providerIds) {
+    const currentAccount = getCurrentSocialAccount(providerId);
+    if (!currentAccount?.providerUserId) continue;
+    const savedAccount = getSavedSocialAccount(providerId);
+    if (!savedAccount?.providerUserId || savedAccount.providerUserId !== currentAccount.providerUserId) {
+      return true;
+    }
+  }
+
+  const githubAccount = getSavedSocialAccount("github");
+  if (runtime.githubSession?.star?.starred && !hasPassedSavedVerification(githubAccount, "github_repo_starred")) {
+    return true;
+  }
+
+  const youtubeAccount = getSavedSocialAccount("youtube");
+  if (runtime.youtubeSession?.subscription?.subscribed && !hasPassedSavedVerification(youtubeAccount, "youtube_channel_subscribed")) {
+    return true;
+  }
+
+  if (runtime.coinMarketCapOpened && !runtime.existingSignup?.verification?.coinMarketCap?.opened) {
+    return true;
+  }
+
+  return false;
+}
+
+function hasUnsavedSignupChanges() {
+  if (!runtime.existingSignup?.id) return false;
+  return hasPendingWalletReplacement() || hasUnsavedSocialChanges();
+}
+
+function hasUnsavedNewSignupProgress() {
+  if (runtime.existingSignup?.id) return false;
+  return getProfileCompletionTasks().some((task) => task.id !== "wallet" && task.done);
+}
+
+function shouldWarnBeforeUnload() {
+  if (runtime.isSubmitting || runtime.isAuthRedirecting) return false;
+  return hasUnsavedSignupChanges() || hasUnsavedNewSignupProgress();
+}
+
 function confirmPendingReplacements() {
   const replacements = getPendingReplacements();
   if (replacements.length === 0) return [];
@@ -470,9 +653,131 @@ function confirmPendingReplacements() {
   }));
 }
 
-function getSavedProviderStatusText(provider, account) {
-  const name = getSavedAccountName(account, provider.title);
-  return `${name} saved from this wallet's existing signup`;
+function getProviderStatusNote(provider, { session, configured }) {
+  if (provider.start && !configured) {
+    return { message: `${provider.title} sign-in is not configured.`, tone: "warning" };
+  }
+  if (provider.id === "github" && session?.profile?.id && session?.star?.error) {
+    return { message: "GitHub star check is unavailable right now.", tone: "warning" };
+  }
+  if (provider.id === "youtube" && session?.profile?.id && session?.subscription?.error) {
+    return { message: "YouTube subscription check is unavailable right now.", tone: "warning" };
+  }
+  return { message: STATUS_TEXT[provider.id] || "", tone: "info" };
+}
+
+function getProviderIdentityLabel(provider, { session, savedAccount }) {
+  if (session?.profile?.id) {
+    const current = getCurrentSocialAccount(provider.id);
+    return current?.label || provider.title;
+  }
+  if (savedAccount?.providerUserId) {
+    return getSavedAccountName(savedAccount, provider.title);
+  }
+  return "";
+}
+
+function getProviderTaskStates(provider, { session, savedAccount }) {
+  const connected = Boolean(session?.profile?.id || savedAccount?.providerUserId);
+
+  if (provider.id === "discord") {
+    return {
+      connected,
+      linkDone: Boolean(session?.membership?.isMember || hasPassedSavedVerification(savedAccount, "discord_guild_member"))
+    };
+  }
+
+  if (provider.id === "telegram") {
+    return {
+      connected,
+      linkDone: Boolean(session?.membership?.isMember || hasPassedSavedVerification(savedAccount, "telegram_group_member"))
+    };
+  }
+
+  if (provider.id === "linkedin") {
+    return { connected, linkDone: false };
+  }
+
+  if (provider.id === "github") {
+    return {
+      connected,
+      linkDone: Boolean(session?.star?.starred || hasPassedSavedVerification(savedAccount, "github_repo_starred"))
+    };
+  }
+
+  if (provider.id === "youtube") {
+    return {
+      connected,
+      linkDone: Boolean(session?.subscription?.subscribed || hasPassedSavedVerification(savedAccount, "youtube_channel_subscribed"))
+    };
+  }
+
+  if (provider.id === "coinMarketCap") {
+    return { connected: Boolean(runtime.coinMarketCapOpened), linkDone: Boolean(runtime.coinMarketCapOpened) };
+  }
+
+  return { connected, linkDone: false };
+}
+
+function syncProviderTaskControls(provider, elements, { session, savedAccount, configured, connecting }) {
+  const states = getProviderTaskStates(provider, { session, savedAccount });
+  const identityLabel = getProviderIdentityLabel(provider, { session, savedAccount });
+  const nodes = [];
+  const hasIdentity = Boolean(states.connected);
+
+  if (provider.start && elements.authButton) {
+    const authAction = configureTaskAction(elements.authButton, {
+      label: hasIdentity ? `Change ${provider.title} account` : connecting ? "Opening..." : "Sign in",
+      icon: hasIdentity ? "edit" : "",
+      disabled: !hasConnectedWallet() || connecting || !configured
+    });
+    nodes.push(createTaskRow({
+      label: hasIdentity ? "Signed in" : "Sign in",
+      detail: hasIdentity ? identityLabel : "",
+      state: hasIdentity ? "done" : "pending",
+      actions: [authAction],
+      actionOnly: !hasIdentity,
+      inlineActions: hasIdentity
+    }));
+  }
+
+  for (const link of elements.links || []) {
+    const linkState = states.linkDone ? "done" : link.dataset.tracksClick === "true" ? "pending" : "manual";
+    link.dataset.state = linkState;
+    link.classList.toggle("is-complete", linkState === "done");
+    const linkAction = link;
+    nodes.push(createTaskRow({
+      label: states.linkDone ? `${link.textContent} complete` : link.textContent,
+      state: linkState,
+      actions: states.linkDone ? [] : [linkAction],
+      actionOnly: !states.linkDone
+    }));
+  }
+
+  if (elements.verifyButton) {
+    const canRecheck = Boolean(session?.profile?.id);
+    const verifyAction = configureTaskAction(elements.verifyButton, {
+      label: `Recheck ${provider.title}`,
+      icon: "refresh",
+      hidden: !canRecheck,
+      disabled: !hasConnectedWallet() || connecting || !configured || !canRecheck
+    });
+    if (canRecheck) {
+      const verifyDone = provider.id === "github"
+        ? states.linkDone
+        : provider.id === "youtube"
+          ? states.linkDone
+          : false;
+      nodes.push(createTaskRow({
+        label: "Recheck",
+        state: verifyDone ? "done" : "pending",
+        actions: [verifyAction],
+        actionOnly: true
+      }));
+    }
+  }
+
+  elements.taskList.replaceChildren(...nodes);
 }
 
 function setWalletMenuOpen(isOpen) {
@@ -487,34 +792,49 @@ function toggleWalletMenu() {
 
 function syncWalletUi() {
   const hasWallet = Boolean(runtime.account);
-  const loadedForWallet = isExistingSignupForCurrentWallet();
   const walletReplacementPending = hasPendingWalletReplacement();
+  const hasWalletProof = Boolean(runtime.walletProof);
 
   if (runtime.isConnectingWallet) {
-    els.connectButton.textContent = "Connecting...";
+    setTaskControlLabel(els.connectButton, "Connecting...");
   } else if (!hasWallet) {
-    els.connectButton.textContent = "Connect Wallet";
+    setTaskControlLabel(els.connectButton, "Connect Wallet");
   } else {
-    els.connectButton.textContent = "Wallet Options";
+    configureTaskAction(els.connectButton, {
+      label: `Wallet options for ${formatAddressShort(runtime.account)}`,
+      icon: "edit"
+    });
   }
 
   els.connectButton.disabled = runtime.isConnectingWallet || runtime.isSubmitting;
-  els.loadSignupButton.hidden = !hasWallet || Boolean(runtime.existingSignup) || loadedForWallet;
-  els.loadSignupButton.disabled = runtime.isLoadingSignup || runtime.isSubmitting;
-  els.loadSignupButton.textContent = runtime.isLoadingSignup ? "Loading..." : "Load saved";
+  els.loadSignupButton.hidden = hasWalletProof;
+  els.loadSignupButton.disabled = !hasWallet || runtime.isLoadingSignup || runtime.isSubmitting;
+  els.loadSignupButton.dataset.state = hasWalletProof ? "done" : "pending";
+  els.loadSignupButton.textContent = runtime.isLoadingSignup
+    ? "Signing..."
+    : "Sign wallet";
+  setTaskState(els.walletConnectTaskRow, hasWallet ? "done" : "pending");
+  setTaskState(els.walletSignTaskRow, hasWalletProof ? "done" : "pending");
+  els.walletConnectTaskRow.classList.toggle("task-row-action-only", !hasWallet);
+  els.walletConnectTaskRow.classList.toggle("task-row-inline-actions", hasWallet);
+  els.walletSignTaskRow.classList.toggle("task-row-action-only", !hasWalletProof);
+  els.walletSignTaskRow.classList.toggle("task-row-inline-actions", false);
+  els.walletConnectTaskTitle.textContent = "Connected wallet";
+  els.walletSignTaskTitle.textContent = hasWalletProof ? "Signed wallet" : "Sign wallet";
+  els.walletConnectTaskDetail.textContent = hasWallet ? formatAddressShort(runtime.account) : "";
+  els.walletSignTaskDetail.textContent = hasWalletProof ? "Saved signup loaded." : "Loads saved signup.";
   els.walletMenuAddress.textContent = hasWallet ? formatAddressShort(runtime.account) : "-";
   els.walletMenuAddress.title = runtime.account || "";
   els.walletMenuChainId.textContent = runtime.chainName || (runtime.chainId ? String(runtime.chainId) : "-");
-  els.walletStatusRow.dataset.ready = hasWallet ? "true" : "false";
-  if (!hasWallet) {
-    els.walletStatusText.textContent = "Not connected";
-  } else if (loadedForWallet) {
-    els.walletStatusText.textContent = `${formatAddressShort(runtime.account)} connected; saved signup loaded`;
-  } else if (walletReplacementPending) {
-    els.walletStatusText.textContent = `${formatAddressShort(runtime.account)} connected; will replace saved wallet ${formatAddressShort(runtime.existingSignup.walletAddress)} on update`;
-  } else {
-    els.walletStatusText.textContent = `${formatAddressShort(runtime.account)} connected; load saved accounts or submit with a social sign-in`;
-  }
+  els.walletStatusRow.dataset.ready = hasWalletProof ? "true" : "false";
+  syncChecklistPill(els.walletStatusRow, hasWalletProof);
+  setStatusNote(
+    els.walletStatusText,
+    walletReplacementPending
+      ? `This update will replace saved wallet ${formatAddressShort(runtime.existingSignup.walletAddress)}.`
+      : STATUS_TEXT.wallet,
+    walletReplacementPending ? "warning" : "info"
+  );
 
   if (!hasWallet) {
     setWalletMenuOpen(false);
@@ -535,16 +855,51 @@ function syncXUi() {
   const signedIn = Boolean(profile?.username);
   const ready = signedIn || Boolean(savedAccount);
   els.xStatusRow.dataset.ready = ready ? "true" : "false";
-  els.xStatusText.textContent = signedIn
-    ? `@${profile.username} connected`
-    : savedAccount
-      ? getSavedProviderStatusText({ title: "X" }, savedAccount)
-      : configured ? "Connect your X account." : "X sign-in is not configured";
-  els.xAuthButton.hidden = signedIn;
-  els.xAuthButton.disabled = !walletReady || runtime.isConnectingX || !configured;
-  els.xAuthButton.textContent = runtime.isConnectingX ? "Opening X..." : savedAccount ? "Change" : "Sign in with X";
-  els.xDisconnectButton.hidden = !signedIn;
-  els.xDisconnectButton.disabled = !walletReady;
+  syncChecklistPill(els.xStatusRow, ready);
+  setStatusNote(
+    els.xStatusText,
+    configured ? STATUS_TEXT.x : "X sign-in is not configured.",
+    configured ? "info" : "warning"
+  );
+
+  const xTaskNodes = [];
+  const xAuthAction = configureTaskAction(els.xAuthButton, {
+    label: ready ? "Change X account" : runtime.isConnectingX ? "Opening..." : "Sign in",
+    icon: ready ? "edit" : "",
+    disabled: !walletReady || runtime.isConnectingX || !configured
+  });
+  if (ready) {
+    const label = signedIn
+      ? `@${profile.username}`
+      : getSavedAccountName(savedAccount, "X");
+    xTaskNodes.push(createTaskRow({
+      label: "Signed in",
+      detail: label,
+      state: "done",
+      actions: [xAuthAction],
+      inlineActions: true
+    }));
+  } else {
+    xTaskNodes.push(createTaskRow({
+      label: "Sign in",
+      state: "pending",
+      actions: [xAuthAction],
+      actionOnly: true
+    }));
+  }
+
+  els.xChecklistLink.dataset.state = "manual";
+  xTaskNodes.push(createTaskRow({
+    label: "Follow Liberdus",
+    state: "manual",
+    actions: [els.xChecklistLink],
+    actionOnly: true
+  }));
+  els.xTaskList.replaceChildren(...xTaskNodes);
+
+  els.xAuthButton.hidden = false;
+  els.xDisconnectButton.hidden = true;
+  els.xDisconnectButton.disabled = true;
   setActionLinkDisabled(els.xChecklistLink, !walletReady);
 }
 
@@ -563,105 +918,95 @@ function syncOptionalRows() {
     const connecting = provider.connectingKey ? Boolean(runtime[provider.connectingKey]) : false;
 
     elements.row.dataset.ready = ready ? "true" : "false";
-    elements.statusText.textContent = session
-      ? provider.getStatusText({
-          session,
-          runtime,
-          config: runtime.config,
-          configured
-        })
-      : savedAccount
-        ? getSavedProviderStatusText(provider, savedAccount)
-        : provider.getStatusText({
-            session,
-            runtime,
-            config: runtime.config,
-            configured
-          });
+    syncChecklistPill(elements.row, ready);
+    const statusNote = getProviderStatusNote(provider, {
+      session,
+      configured,
+      config: runtime.config
+    });
+    setStatusNote(elements.statusText, statusNote.message, statusNote.tone);
 
     updateProviderLinks(provider, elements);
-
-    if (elements.authButton) {
-      const activeReady = session && provider.isReady ? provider.isReady(session, runtime) : false;
-      elements.authButton.hidden = Boolean(activeReady);
-      elements.authButton.disabled = !walletReady || connecting || !configured;
-      elements.authButton.textContent = !session && savedAccount
-        ? "Change"
-        : provider.getAuthButtonText
-          ? provider.getAuthButtonText({ connecting, session, runtime, config: runtime.config })
-          : connecting ? "Opening..." : "Sign in";
-    }
-    if (elements.disconnectButton) {
-      elements.disconnectButton.hidden = !session;
-      elements.disconnectButton.disabled = !walletReady;
-    }
+    syncProviderTaskControls(provider, elements, {
+      session,
+      savedAccount,
+      configured,
+      connecting
+    });
   }
 }
 
-function syncExistingSignupUi() {
-  const signup = runtime.existingSignup;
-  els.existingSignupPanel.hidden = !signup;
+function getProfileCompletionTasks() {
+  const discordAccount = getSavedSocialAccount("discord");
+  const telegramAccount = getSavedSocialAccount("telegram");
+  const linkedinAccount = getSavedSocialAccount("linkedin");
+  const githubAccount = getSavedSocialAccount("github");
+  const youtubeAccount = getSavedSocialAccount("youtube");
+  const cmcOpened = Boolean(runtime.coinMarketCapOpened || runtime.existingSignup?.verification?.coinMarketCap?.opened);
 
-  if (!signup) {
-    return;
+  return [
+    { id: "wallet", done: hasConnectedWallet() },
+    { id: "xSignin", done: Boolean(runtime.xSession?.profile?.id || getSavedSocialAccount("x")) },
+    { id: "discordSignin", done: Boolean(runtime.discordSession?.profile?.id || discordAccount) },
+    { id: "discordJoin", done: Boolean(runtime.discordSession?.membership?.isMember || hasPassedSavedVerification(discordAccount, "discord_guild_member")) },
+    { id: "telegramSignin", done: Boolean(runtime.telegramSession?.profile?.id || telegramAccount) },
+    { id: "telegramJoin", done: Boolean(runtime.telegramSession?.membership?.isMember || hasPassedSavedVerification(telegramAccount, "telegram_group_member")) },
+    { id: "linkedinSignin", done: Boolean(runtime.linkedinSession?.profile?.id || linkedinAccount) },
+    { id: "githubSignin", done: Boolean(runtime.githubSession?.profile?.id || githubAccount) },
+    { id: "githubStar", done: Boolean(runtime.githubSession?.star?.starred || hasPassedSavedVerification(githubAccount, "github_repo_starred")) },
+    { id: "youtubeSignin", done: Boolean(runtime.youtubeSession?.profile?.id || youtubeAccount) },
+    { id: "youtubeSubscribe", done: Boolean(runtime.youtubeSession?.subscription?.subscribed || hasPassedSavedVerification(youtubeAccount, "youtube_channel_subscribed")) },
+    { id: "coinMarketCap", done: cmcOpened }
+  ];
+}
+
+function syncProfileMeter({ ready, walletReady, requiredSocialReady, savedCurrent }) {
+  const tasks = getProfileCompletionTasks();
+  const completeCount = tasks.filter((task) => task.done).length;
+  const totalCount = tasks.length || 1;
+  const percent = Math.round((completeCount / totalCount) * 100);
+  els.profileTaskText.textContent = walletReady ? `${completeCount}/${totalCount} tasks complete` : "";
+  els.profileBarFill.style.width = walletReady ? `${percent}%` : "0%";
+
+  if (runtime.conflictMessage) {
+    els.profileGateText.textContent = "Resolve the account conflict before updating.";
+  } else if (ready) {
+    els.profileGateText.textContent = "Minimum complete. More tasks may strengthen future reward eligibility.";
+  } else if (!walletReady) {
+    els.profileGateText.textContent = "Connect a wallet to start your reward profile.";
+  } else if (!requiredSocialReady) {
+    els.profileGateText.textContent = "Connect at least one required social account to submit.";
+  } else {
+    els.profileGateText.textContent = "Finish the required tasks, then submit and sign.";
   }
 
-  const wallet = signup.walletAddress ? formatAddressShort(signup.walletAddress) : "no wallet";
-  const requiredProvider = ["x", "discord", "telegram", "linkedin"]
-    .map((providerId) => getSavedSocialAccount(providerId))
-    .find(Boolean);
-  const username = requiredProvider
-    ? `${requiredProvider.provider}: ${getSavedAccountName(requiredProvider)}`
-    : "no required social";
-  const status = signup.status || "received";
-  const replacement = hasPendingWalletReplacement()
-    ? `, wallet change pending to ${formatAddressShort(runtime.account)}`
-    : "";
-  const summary = `${username} with ${wallet}${replacement}, status ${status}`;
-  els.existingSignupText.textContent = summary;
+  setTaskState(els.minimumWallet, walletReady ? "done" : "pending");
+  setTaskState(els.minimumSocial, requiredSocialReady ? "done" : "pending");
+  setTaskState(els.minimumSubmit, runtime.conflictMessage ? "error" : savedCurrent ? "done" : ready ? "ready" : "pending");
+}
+
+function syncChecklistLockUi() {
+  const walletReady = hasConnectedWallet();
+  els.xStatusRow.hidden = !walletReady;
+  els.optionalChecklist.hidden = !walletReady;
 }
 
 function syncSubmitUi() {
   const walletReady = hasConnectedWallet();
   const requiredSocialReady = hasRequiredSocialSession();
   const ready = walletReady && requiredSocialReady && !runtime.conflictMessage;
+  const savedCurrent = Boolean(runtime.existingSignup?.id && !hasUnsavedSignupChanges());
   els.submitButton.disabled = !ready || runtime.isSubmitting;
   els.submitButton.textContent = runtime.isSubmitting ? "Signing..." : runtime.existingSignup ? "Update & Sign" : "Submit & Sign";
 
-  if (runtime.conflictMessage) {
-    els.proofHint.textContent = runtime.conflictMessage;
-    els.submissionStatus.textContent = "Conflict";
-    els.submissionStatus.dataset.tone = "error";
-  } else if (runtime.existingSignup) {
-    els.proofHint.textContent = hasPendingWalletReplacement()
-      ? "Wallet change pending. Submit and sign with the new wallet to save the update."
-      : "Existing signup loaded. Submit and sign to save updates.";
-    els.submissionStatus.textContent = "Loaded";
-    els.submissionStatus.dataset.tone = "ready";
-  } else if (ready) {
-    els.proofHint.textContent = "Ready to submit. Nothing is saved until you click Submit & Sign.";
-    els.submissionStatus.textContent = "Ready";
-    els.submissionStatus.dataset.tone = "ready";
-  } else if (!walletReady) {
-    els.proofHint.textContent = "Nothing is saved yet. Connect a wallet before submitting.";
-    els.submissionStatus.textContent = "Draft";
-    els.submissionStatus.dataset.tone = "neutral";
-  } else if (!requiredSocialReady) {
-    els.proofHint.textContent = "Nothing is saved yet. Connect X, Telegram, Discord, or LinkedIn, or load a saved signup for this wallet.";
-    els.submissionStatus.textContent = "Draft";
-    els.submissionStatus.dataset.tone = "neutral";
-  } else {
-    els.proofHint.textContent = "Nothing is saved yet. Complete the required checklist items before submitting.";
-    els.submissionStatus.textContent = "Draft";
-    els.submissionStatus.dataset.tone = "neutral";
-  }
+  syncProfileMeter({ ready, walletReady, requiredSocialReady, savedCurrent });
 }
 
 function syncUi() {
+  syncChecklistLockUi();
   syncWalletUi();
   syncXUi();
   syncOptionalRows();
-  syncExistingSignupUi();
   syncSubmitUi();
 }
 
@@ -833,6 +1178,12 @@ async function loadPublicBackendConfig() {
 }
 
 function bindEvents() {
+  window.addEventListener("beforeunload", (event) => {
+    if (!shouldWarnBeforeUnload()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+
   els.connectButton.addEventListener("click", async () => {
     try {
       if (!runtime.account) {
@@ -859,7 +1210,7 @@ function bindEvents() {
   });
 
   els.loadSignupButton.addEventListener("click", () => {
-    loadExistingSignupForWallet().catch((error) => reportError(error, "Load saved signup"));
+    loadExistingSignupForWallet().catch((error) => reportError(error, "Sign wallet"));
   });
 
   els.copyWalletAddressButton.addEventListener("click", async () => {
@@ -872,14 +1223,27 @@ function bindEvents() {
   });
 
   els.xAuthButton.addEventListener("click", async () => {
+    let startedRedirect = false;
     try {
       runtime.isConnectingX = true;
       syncUi();
+      if (runtime.xSession) {
+        await logoutXSession(runtime.config, runtime.xSession);
+        runtime.xSession = null;
+        clearXSession();
+      }
+      runtime.isAuthRedirecting = true;
       await startXLogin(runtime.config);
+      startedRedirect = true;
     } catch (error) {
       runtime.isConnectingX = false;
+      runtime.isAuthRedirecting = false;
       syncUi();
       reportError(error, "Start X sign-in");
+    } finally {
+      if (!startedRedirect) {
+        runtime.isAuthRedirecting = false;
+      }
     }
   });
 
@@ -904,29 +1268,50 @@ function bindEvents() {
     const elements = providerElements.get(provider.id);
     if (elements?.authButton && provider.start) {
       elements.authButton.addEventListener("click", async () => {
+        let startedRedirect = false;
         try {
           if (provider.connectingKey) runtime[provider.connectingKey] = true;
           syncUi();
+          const session = provider.sessionKey ? runtime[provider.sessionKey] : null;
+          if (session?.profile?.id && provider.disconnect) {
+            await provider.disconnect({ runtime });
+            runtime[provider.sessionKey] = null;
+            syncUi();
+          }
+          runtime.isAuthRedirecting = true;
           const result = await provider.start({ runtime, syncUi, showMessage });
-          if (result?.redirecting) return;
+          startedRedirect = Boolean(result?.redirecting);
+          if (startedRedirect) return;
         } catch (error) {
           reportError(error, `Start ${provider.title} sign-in`);
         } finally {
+          if (!startedRedirect) {
+            runtime.isAuthRedirecting = false;
+          }
           if (provider.connectingKey) runtime[provider.connectingKey] = false;
           syncUi();
         }
       });
     }
 
-    if (elements?.disconnectButton && provider.disconnect) {
-      elements.disconnectButton.addEventListener("click", async () => {
+    if (elements?.verifyButton && provider.start) {
+      elements.verifyButton.addEventListener("click", async () => {
+        let startedRedirect = false;
         try {
-          await provider.disconnect({ runtime });
-          if (provider.sessionKey) runtime[provider.sessionKey] = null;
+          if (provider.connectingKey) runtime[provider.connectingKey] = true;
           syncUi();
-          showMessage(`${provider.title} account disconnected.`);
+          runtime.isAuthRedirecting = true;
+          const result = await provider.start({ runtime, syncUi, showMessage });
+          startedRedirect = Boolean(result?.redirecting);
+          if (startedRedirect) return;
         } catch (error) {
-          reportError(error, `Disconnect ${provider.title}`);
+          reportError(error, `Recheck ${provider.title}`);
+        } finally {
+          if (!startedRedirect) {
+            runtime.isAuthRedirecting = false;
+          }
+          if (provider.connectingKey) runtime[provider.connectingKey] = false;
+          syncUi();
         }
       });
     }

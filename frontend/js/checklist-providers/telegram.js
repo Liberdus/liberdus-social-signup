@@ -21,17 +21,6 @@ export const telegramProvider = {
   isReady(session) {
     return Boolean(session?.profile?.id);
   },
-  getStatusText({ session, configured }) {
-    if (session?.profile?.id) {
-      const name = session.profile.username ? `@${session.profile.username}` : session.profile.displayName;
-      return session.membership?.isMember
-        ? `${name} connected and group membership confirmed`
-        : `${name} connected; join the group to complete this optional check`;
-    }
-    return configured
-      ? "Join the Liberdus Telegram and connect your account."
-      : "Telegram sign-in is not configured.";
-  },
   getAuthButtonText({ connecting }) {
     return connecting ? "Opening..." : "Sign in";
   },

@@ -21,14 +21,6 @@ export const linkedInProvider = {
   isReady(session) {
     return Boolean(session?.profile?.id);
   },
-  getStatusText({ session, configured }) {
-    if (session?.profile?.id) {
-      return `${session.profile.displayName || session.profile.name || "LinkedIn account"} connected`;
-    }
-    return configured
-      ? "Follow Liberdus on LinkedIn and connect your account."
-      : "LinkedIn sign-in is not configured.";
-  },
   getAuthButtonText({ connecting }) {
     return connecting ? "Opening..." : "Sign in";
   },

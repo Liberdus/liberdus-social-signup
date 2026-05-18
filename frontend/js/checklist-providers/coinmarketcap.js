@@ -13,9 +13,6 @@ export const coinMarketCapProvider = {
   isReady(_session, runtime) {
     return Boolean(runtime.coinMarketCapOpened);
   },
-  getStatusText({ runtime }) {
-    return runtime.coinMarketCapOpened ? "Opened this session." : "Follow Liberdus on CoinMarketCap.";
-  },
   onLinkClick({ runtime }) {
     runtime.coinMarketCapOpened = true;
   }

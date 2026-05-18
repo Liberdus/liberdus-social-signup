@@ -47,66 +47,103 @@
           <div>
             <p class="eyebrow">Rewards signup</p>
             <h2>Account Checklist</h2>
-            <p class="hint">Connect your wallet and at least one of X, Telegram, Discord, or LinkedIn. Your wallet signature happens when you submit.</p>
+            <p class="hint">Link your wallet to the social accounts you use for Liberdus. Complete the minimum to submit; adding more socials may help us recognize your activity for future rewards.</p>
           </div>
-          <p id="submissionStatus" class="status-chip" data-tone="neutral">Draft</p>
         </div>
 
-        <div id="existingSignupPanel" class="existing-signup-panel" hidden>
-          <strong>Existing signup loaded</strong>
-          <p id="existingSignupText">This browser has loaded a previous signup.</p>
+        <div class="signup-progress" aria-label="Reward profile progress">
+          <div class="profile-meter">
+            <div class="profile-meter-heading">
+              <strong>Reward profile</strong>
+              <span id="profileTaskText" class="profile-task-count"></span>
+            </div>
+            <div class="profile-bar" aria-hidden="true">
+              <span id="profileBarFill"></span>
+            </div>
+            <div class="profile-action-row">
+              <p id="profileGateText">Connect a wallet to start your reward profile.</p>
+              <p class="save-note">Nothing is saved until you submit and sign.</p>
+              <div class="minimum-action-row">
+                <div class="minimum-status" aria-label="Minimum to submit">
+                  <span class="minimum-label">Minimum to submit</span>
+                  <span id="minimumWallet" class="minimum-chip" data-state="pending">Wallet</span>
+                  <span id="minimumSocial" class="minimum-chip" data-state="pending">Required social</span>
+                  <span id="minimumSubmit" class="minimum-chip" data-state="pending">Submit</span>
+                </div>
+                <button id="submitButton" type="button" disabled>Submit & Sign</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="signup-checklist">
           <article class="checklist-item" id="walletStatusRow" data-required="true">
-            <span class="status-dot" aria-hidden="true"></span>
+            <span class="provider-mark provider-mark-wallet" aria-hidden="true">W</span>
             <div class="checklist-copy">
               <div class="checklist-title-row">
-                <h3>Wallet ownership</h3>
+                <h3>Wallet</h3>
                 <span class="required-pill">Required</span>
               </div>
-              <p id="walletStatusText">Not connected</p>
-            </div>
-            <div class="checklist-actions wallet-menu-shell">
-              <button id="loadSignupButton" type="button" class="secondary wallet-load-button" hidden>Load saved</button>
-              <button id="connectButton" type="button" class="wallet-trigger" aria-haspopup="menu" aria-expanded="false">Connect Wallet</button>
-              <div id="walletMenu" class="wallet-popout" role="menu" hidden>
-                <p class="wallet-popout-label">Connected wallet</p>
-                <div class="wallet-popout-row">
-                  <p id="walletMenuAddress" class="wallet-popout-address">-</p>
-                  <button id="copyWalletAddressButton" type="button" class="ghost wallet-copy-button">Copy</button>
+              <p id="walletStatusText" class="status-note" hidden></p>
+              <div class="task-list wallet-menu-shell" aria-label="Wallet tasks">
+                <div class="task-row task-row-action-only task-row-inline-actions" id="walletConnectTaskRow" data-state="pending">
+                  <span class="task-check" aria-hidden="true"></span>
+                  <span class="task-row-copy">
+                    <span class="task-row-title-line">
+                      <span id="walletConnectTaskTitle" class="task-row-title">Connected wallet</span>
+                      <span class="task-row-actions task-row-inline-action-group">
+                        <button id="connectButton" type="button" class="task-control wallet-trigger" aria-haspopup="menu" aria-expanded="false">Connect Wallet</button>
+                      </span>
+                    </span>
+                    <span id="walletConnectTaskDetail" class="task-row-detail"></span>
+                  </span>
                 </div>
-                <div class="wallet-popout-meta">
-                  <p><span>Network</span><strong id="walletMenuChainId">-</strong></p>
+                <div class="task-row task-row-action-only task-row-inline-actions" id="walletSignTaskRow" data-state="pending">
+                  <span class="task-check" aria-hidden="true"></span>
+                  <span class="task-row-copy">
+                    <span class="task-row-title-line">
+                      <span id="walletSignTaskTitle" class="task-row-title">Signed wallet</span>
+                      <span class="task-row-actions task-row-inline-action-group">
+                        <button id="loadSignupButton" type="button" class="task-control task-secondary wallet-load-button" disabled>Sign wallet</button>
+                      </span>
+                    </span>
+                    <span id="walletSignTaskDetail" class="task-row-detail">Saved signup loaded.</span>
+                  </span>
                 </div>
-                <button id="disconnectButton" type="button" class="ghost wallet-disconnect-button">Disconnect</button>
+                <div id="walletMenu" class="wallet-popout" role="menu" hidden>
+                  <p class="wallet-popout-label">Connected wallet</p>
+                  <div class="wallet-popout-row">
+                    <p id="walletMenuAddress" class="wallet-popout-address">-</p>
+                    <button id="copyWalletAddressButton" type="button" class="ghost wallet-copy-button">Copy</button>
+                  </div>
+                  <div class="wallet-popout-meta">
+                    <p><span>Network</span><strong id="walletMenuChainId">-</strong></p>
+                  </div>
+                  <button id="disconnectButton" type="button" class="ghost wallet-disconnect-button">Disconnect</button>
+                </div>
               </div>
             </div>
           </article>
 
-          <article class="checklist-item" id="xStatusRow" data-required="true">
-            <span class="status-dot" aria-hidden="true"></span>
+          <article class="checklist-item" id="xStatusRow" data-required="true" hidden>
+            <span class="provider-mark provider-mark-x" aria-hidden="true">X</span>
             <div class="checklist-copy">
               <div class="checklist-title-row">
-                <h3>X account</h3>
+                <h3>X.com</h3>
                 <span class="choice-pill">One required</span>
               </div>
-              <p id="xStatusText">Not signed in</p>
+              <p id="xStatusText" class="status-note" hidden></p>
+              <div class="task-list" aria-label="X tasks">
+                <button id="xAuthButton" type="button" class="task-control" disabled>Sign in</button>
+                <a id="xChecklistLink" class="task-control task-link" href="https://x.com/liberdus" target="_blank" rel="noreferrer noopener" aria-disabled="true" tabindex="-1">Follow</a>
+              </div>
             </div>
-            <div class="checklist-actions button-row">
-              <a id="xChecklistLink" class="secondary nav-button checklist-link" href="https://x.com/liberdus" target="_blank" rel="noreferrer noopener" aria-disabled="true" tabindex="-1">Follow</a>
-              <button id="xAuthButton" type="button" class="secondary" disabled>Sign in with X</button>
-              <button id="xDisconnectButton" type="button" class="ghost" hidden disabled>Sign out</button>
-            </div>
+            <button id="xDisconnectButton" type="button" class="ghost" hidden disabled>Sign out</button>
           </article>
 
-          <div id="optionalChecklist" class="optional-checklist"></div>
+          <div id="optionalChecklist" class="optional-checklist" hidden></div>
         </div>
 
-        <div class="checklist-submit-bar">
-          <p id="proofHint" class="hint">Nothing is saved until you submit and sign with your wallet.</p>
-          <button id="submitButton" type="button" disabled>Submit & Sign</button>
-        </div>
       </section>
     </main>
 

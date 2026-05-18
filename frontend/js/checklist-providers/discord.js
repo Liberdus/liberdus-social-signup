@@ -21,15 +21,6 @@ export const discordProvider = {
   isReady(session) {
     return Boolean(session?.profile?.username);
   },
-  getStatusText({ session }) {
-    if (session?.profile?.username) {
-      const name = session.profile.displayName || session.profile.username;
-      return session.membership?.isMember
-        ? `${name} connected and server membership confirmed`
-        : `${name} connected; join the server to complete this optional check`;
-    }
-    return "Join the Liberdus server and connect your Discord account.";
-  },
   getAuthButtonText({ connecting }) {
     return connecting ? "Opening..." : "Sign in";
   },

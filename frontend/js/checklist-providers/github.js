@@ -21,19 +21,6 @@ export const gitHubProvider = {
   isReady(session) {
     return Boolean(session?.star?.starred);
   },
-  getStatusText({ session, configured, config }) {
-    const profile = session?.profile || null;
-    const star = session?.star || null;
-    const name = profile?.username ? `@${profile.username}` : "GitHub account";
-    const targetRepo = star?.targetRepo || config.githubAuth?.targetRepo || "Liberdus/web-client-v2";
-
-    if (star?.starred) return `${name} starred ${targetRepo}`;
-    if (profile?.id && star?.error) return `${name} connected; repo star check is unavailable`;
-    if (profile?.id) return `${name} connected; star ${targetRepo} and recheck`;
-    return configured
-      ? `Star ${targetRepo} and connect your GitHub account.`
-      : "GitHub sign-in is not configured.";
-  },
   getAuthButtonText({ connecting, session }) {
     if (connecting) return "Opening...";
     return session?.profile?.id ? "Recheck" : "Sign in";
