@@ -123,7 +123,7 @@ function escapeCsvValue(value) {
 
 function normalizeSocialStatus(value) {
   const status = String(value || "unknown").trim().toLowerCase();
-  return ["passed", "failed", "unknown"].includes(status) ? status : "unknown";
+  return ["passed", "failed", "unknown", "claimed"].includes(status) ? status : "unknown";
 }
 
 function normalizeProviderOrder(provider) {

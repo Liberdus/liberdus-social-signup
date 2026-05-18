@@ -2,6 +2,7 @@ const { parseJsonObject } = require("./json-utils");
 
 const REQUIRED_SOCIAL_PROVIDER_IDS = ["x", "telegram", "discord", "linkedin"];
 const SNAPSHOT_PROVIDERS = ["discord", "telegram", "linkedin", "github", "youtube"];
+const MANUAL_CLAIM_KEY = "followClaim";
 
 function getProviderLabel(provider) {
   return ({
@@ -79,20 +80,43 @@ function getSignupVerification(signup) {
 function mergeVerification(existingSignup, currentVerification, { hasXSession } = {}) {
   if (!existingSignup) return currentVerification;
   const existing = getSignupVerification(existingSignup);
+  const mergeManualClaim = (baseProvider = {}, savedProvider = {}, currentProvider = {}) => {
+    const claim = currentProvider?.[MANUAL_CLAIM_KEY]?.claimed
+      ? currentProvider[MANUAL_CLAIM_KEY]
+      : savedProvider?.[MANUAL_CLAIM_KEY]?.claimed
+        ? savedProvider[MANUAL_CLAIM_KEY]
+        : null;
+    if (!claim) return baseProvider;
+    return {
+      ...baseProvider,
+      [MANUAL_CLAIM_KEY]: claim
+    };
+  };
   const merged = {
     ...existing,
     ...currentVerification,
-    x: hasXSession ? currentVerification.x : existing.x || currentVerification.x,
+    x: mergeManualClaim(
+      hasXSession ? currentVerification.x : existing.x || currentVerification.x,
+      existing.x,
+      currentVerification.x
+    ),
     coinMarketCap: {
       ...(existing.coinMarketCap || {}),
       ...currentVerification.coinMarketCap,
-      opened: Boolean(existing.coinMarketCap?.opened || currentVerification.coinMarketCap?.opened)
+      opened: Boolean(existing.coinMarketCap?.opened || currentVerification.coinMarketCap?.opened),
+      ...(currentVerification.coinMarketCap?.[MANUAL_CLAIM_KEY]?.claimed
+        ? { [MANUAL_CLAIM_KEY]: currentVerification.coinMarketCap[MANUAL_CLAIM_KEY] }
+        : existing.coinMarketCap?.[MANUAL_CLAIM_KEY]
+          ? { [MANUAL_CLAIM_KEY]: existing.coinMarketCap[MANUAL_CLAIM_KEY] }
+          : {})
     }
   };
 
   for (const provider of SNAPSHOT_PROVIDERS) {
     if (!currentVerification[provider]?.connected && existing[provider]) {
-      merged[provider] = existing[provider];
+      merged[provider] = mergeManualClaim(existing[provider], existing[provider], currentVerification[provider]);
+    } else if (currentVerification[provider]?.[MANUAL_CLAIM_KEY]?.claimed) {
+      merged[provider] = mergeManualClaim(merged[provider], existing[provider], currentVerification[provider]);
     }
   }
 

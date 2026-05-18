@@ -15,7 +15,7 @@ export const linkedInProvider = {
   requirementLabel: "One required",
   footerLink: { label: "LinkedIn", hrefKey: "linkedin", defaultHref: "https://www.linkedin.com/company/liberdus" },
   links: [
-    { label: "Follow", hrefKey: "linkedin", defaultHref: "https://www.linkedin.com/company/liberdus" }
+    { label: "Follow", hrefKey: "linkedin", defaultHref: "https://www.linkedin.com/company/liberdus", manualClaimKey: "linkedinFollow" }
   ],
   isConfigured: isLinkedInAuthConfigured,
   isReady(session) {

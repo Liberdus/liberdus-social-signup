@@ -7,7 +7,8 @@ export const coinMarketCapProvider = {
       label: "Follow",
       hrefKey: "coinMarketCap",
       fallbackHrefKey: "cmc",
-      defaultHref: "https://coinmarketcap.com/community/profile/Liberdus/"
+      defaultHref: "https://coinmarketcap.com/community/profile/Liberdus/",
+      manualClaimKey: "coinMarketCapFollow"
     }
   ],
   isReady(_session, runtime) {

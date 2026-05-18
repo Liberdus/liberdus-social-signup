@@ -12,6 +12,8 @@ The public page is a checklist instead of a details form. Discord, Telegram, and
 
 The database keeps one row per signup, plus normalized social account and verification-check rows for connected providers. Provider raw profile/check payloads are retained as JSON for audit/debug while searchable identity fields stay relational.
 
+Follow/link tasks that cannot be verified through an API are stored as manual claims, not verified checks. A user click on tasks such as X follow, LinkedIn follow, or CoinMarketCap follow can be persisted after submit with verification status `claimed`; only API-confirmed checks should use `passed`.
+
 Social integrations are split by provider:
 
 - Backend OAuth/verification providers live in `backend/lib/social/`.

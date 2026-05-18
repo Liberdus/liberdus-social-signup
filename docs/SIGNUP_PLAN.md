@@ -74,6 +74,7 @@ Database:
 - Unique X user ID and unique wallet address reduce duplicate/spam submissions.
 - `signup_social_accounts` stores one row per connected account with provider, provider user ID, username/display name, profile/avatar URL, connected timestamp, and raw normalized profile JSON.
 - `signup_social_verifications` stores one row per verification check, such as `x_verified`, `discord_guild_member`, `telegram_group_member`, and `linkedin_authenticated`.
+- Manual follow/link tasks that cannot be API-verified use verification status `claimed`, not `passed`. Current manual claims include `x_follow_manual`, `linkedin_follow_manual`, and `coinmarketcap_follow_manual`; these mean the user clicked the external task link and submitted the signup, not that Liberdus verified the follow.
 - `verification_json` remains as a compatibility snapshot, but normalized social account/check rows are the long-term source for search, filtering, audit history, and account replacement.
 - Explicit account replacement history is not implemented yet and remains a launch-followup requirement.
 
@@ -142,6 +143,7 @@ Feasible for identity and likely feasible for follow checks, subject to current 
 Current approach:
 
 - Store authenticated X user ID.
+- Store a manual `x_follow_manual` claim when the user clicks the X follow link and submits. This is a claimed task only and should not be treated as verified follower data.
 - Store Liberdus target account IDs in backend config.
 - Use a background verification job to check whether each signup follows required Liberdus accounts.
 - Cache results because follow-list endpoints are paginated and rate-limited.
@@ -191,7 +193,7 @@ Current approach:
 - Add LinkedIn OIDC sign-in as a required-choice provider.
 - Store LinkedIn subject ID, name, profile picture if returned, email only if returned and needed, and authentication timestamp.
 - Do not rely on LinkedIn follow verification unless Liberdus obtains the needed LinkedIn API product access.
-- Show LinkedIn as a connected account, not as a verified follow task.
+- Store a manual `linkedin_follow_manual` claim when the user clicks the LinkedIn follow link and submits. This is only a self-claimed follow task, not an API verification.
 - Local implementation uses backend-owned OAuth with `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, and `LINKEDIN_OAUTH_CALLBACK_URL`.
 
 ### GitHub
@@ -241,6 +243,7 @@ Recommended approach:
 
 - Add a checklist row with a link to the Liberdus CoinMarketCap page/community profile.
 - Label it as an external follow link.
+- Store `coinmarketcap_follow_manual` with status `claimed` after the user opens the link and submits. This is useful reward-context data, but it is not proof of a CMC follow.
 - Do not block signup on this action.
 - Do not require CMC comments or screenshot uploads in the MVP.
 

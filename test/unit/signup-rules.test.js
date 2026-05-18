@@ -56,6 +56,59 @@ test("mergeVerification replaces X when a current X session exists", () => {
   assert.equal(merged.x.userId, "x-new");
 });
 
+test("mergeVerification preserves and applies manual follow claims", () => {
+  const claimedAt = new Date().toISOString();
+  const existing = {
+    verification_json: JSON.stringify({
+      x: {
+        authenticated: true,
+        userId: "x-old",
+        followClaim: {
+          claimed: true,
+          status: "claimed",
+          checkType: "x_follow_manual",
+          claimedAt
+        }
+      },
+      linkedin: {
+        connected: true,
+        userId: "linkedin-old"
+      }
+    })
+  };
+  const current = {
+    x: { authenticated: true, userId: "x-new", username: "newx" },
+    linkedin: {
+      connected: false,
+      followClaim: {
+        claimed: true,
+        status: "claimed",
+        checkType: "linkedin_follow_manual",
+        claimedAt
+      }
+    },
+    coinMarketCap: {
+      opened: true,
+      verified: false,
+      followClaim: {
+        claimed: true,
+        status: "claimed",
+        checkType: "coinmarketcap_follow_manual",
+        claimedAt
+      }
+    },
+    wallet: { signed: true, chainId: 1 }
+  };
+
+  const merged = mergeVerification(existing, current, { hasXSession: true });
+
+  assert.equal(merged.x.userId, "x-new");
+  assert.equal(merged.x.followClaim.checkType, "x_follow_manual");
+  assert.equal(merged.linkedin.userId, "linkedin-old");
+  assert.equal(merged.linkedin.followClaim.checkType, "linkedin_follow_manual");
+  assert.equal(merged.coinMarketCap.followClaim.status, "claimed");
+});
+
 test("mergeSocialAccounts keeps one account per provider and prefers current accounts", () => {
   const merged = mergeSocialAccounts([
     { provider: "discord", providerUserId: "discord-old", username: "old" },

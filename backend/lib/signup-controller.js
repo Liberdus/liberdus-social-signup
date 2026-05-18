@@ -15,6 +15,24 @@ const {
 const SIGNUP_BROWSER_COOKIE_NAME = "liberdus_signup_browser_session";
 const SIGNUP_BROWSER_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
+const MANUAL_FOLLOW_CLAIMS = {
+  xFollow: {
+    provider: "x",
+    checkType: "x_follow_manual",
+    targetId: "https://x.com/liberdus"
+  },
+  linkedinFollow: {
+    provider: "linkedin",
+    checkType: "linkedin_follow_manual",
+    targetId: "https://www.linkedin.com/company/liberdus"
+  },
+  coinMarketCapFollow: {
+    provider: "coinMarketCap",
+    checkType: "coinmarketcap_follow_manual",
+    targetId: "https://coinmarketcap.com/community/profile/Liberdus/"
+  }
+};
+const MANUAL_CLAIM_KEY = "followClaim";
 
 function createSignupController(context) {
   const {
@@ -211,6 +229,71 @@ function createSignupController(context) {
     });
   }
 
+  function normalizeManualClaims(value = {}) {
+    if (!value || typeof value !== "object") return {};
+    return Object.fromEntries(Object.keys(MANUAL_FOLLOW_CLAIMS).map((key) => [
+      key,
+      value[key] === true
+    ]));
+  }
+
+  function buildManualClaim({ key, now }) {
+    const definition = MANUAL_FOLLOW_CLAIMS[key];
+    if (!definition) return null;
+    return {
+      claimed: true,
+      status: "claimed",
+      checkType: definition.checkType,
+      targetId: definition.targetId,
+      claimedAt: now,
+      source: "user_click",
+      verified: false
+    };
+  }
+
+  function applyManualClaimsToVerification(verification, manualClaims, now) {
+    const next = { ...verification };
+    for (const [key, claimed] of Object.entries(manualClaims)) {
+      if (!claimed) continue;
+      const definition = MANUAL_FOLLOW_CLAIMS[key];
+      const claim = buildManualClaim({ key, now });
+      next[definition.provider] = {
+        ...(next[definition.provider] || {}),
+        [MANUAL_CLAIM_KEY]: claim
+      };
+      if (definition.provider === "coinMarketCap") {
+        next.coinMarketCap.opened = true;
+        next.coinMarketCap.verified = false;
+      }
+    }
+    return next;
+  }
+
+  function attachManualClaimVerifications(accounts = [], verification = {}, now) {
+    return accounts.map((account) => {
+      const definition = Object.values(MANUAL_FOLLOW_CLAIMS)
+        .find((claimDefinition) => claimDefinition.provider === account.provider);
+      const claim = definition ? verification[account.provider]?.[MANUAL_CLAIM_KEY] : null;
+      if (!claim?.claimed) return account;
+
+      const verifications = (account.verifications || [])
+        .filter((event) => event.checkType !== definition.checkType);
+      return {
+        ...account,
+        verifications: [
+          ...verifications,
+          {
+            checkType: definition.checkType,
+            targetId: definition.targetId,
+            status: "claimed",
+            checkedAt: claim.claimedAt || now,
+            rawResult: claim
+          }
+        ]
+      };
+    });
+  }
+
   function buildSignupSocialAccounts({ socialSessions = {}, now }) {
     return socialProviders.buildSocialAccounts(socialSessions, now);
   }
@@ -317,16 +400,16 @@ function createSignupController(context) {
     }
   }
 
-  function buildCurrentVerification({ socialSessions, walletProof, coinMarketCapOpened }) {
+  function buildCurrentVerification({ socialSessions, walletProof, coinMarketCapOpened, manualClaims, now }) {
     const socialVerification = socialProviders.getVerificationSnapshot(socialSessions);
-    return {
+    return applyManualClaimsToVerification({
       ...socialVerification,
       wallet: {
         signed: true,
         chainId: walletProof.walletChainId
       },
       coinMarketCap: { opened: Boolean(coinMarketCapOpened), verified: false }
-    };
+    }, manualClaims, now);
   }
 
   async function handleComplete(request, response) {
@@ -348,10 +431,17 @@ function createSignupController(context) {
     }
 
     const now = new Date().toISOString();
+    const manualClaimInput = body.manualClaims && typeof body.manualClaims === "object" ? body.manualClaims : {};
+    const manualClaims = normalizeManualClaims({
+      ...manualClaimInput,
+      coinMarketCapFollow: manualClaimInput.coinMarketCapFollow === true || body.coinMarketCapOpened === true
+    });
     const currentVerification = buildCurrentVerification({
       socialSessions,
       walletProof,
-      coinMarketCapOpened: body.coinMarketCapOpened
+      coinMarketCapOpened: body.coinMarketCapOpened,
+      manualClaims,
+      now
     });
     const currentSocialAccounts = buildSignupSocialAccounts({
       socialSessions,
@@ -400,6 +490,7 @@ function createSignupController(context) {
     const mergedSocialAccounts = targetSignupSerialized
       ? mergeSocialAccounts(targetSignupSerialized.socialAccounts, currentSocialAccounts)
       : currentSocialAccounts;
+    const socialAccountsWithManualClaims = attachManualClaimVerifications(mergedSocialAccounts, verification, now);
     const signupInput = {
       id: targetSignup?.id || crypto.randomUUID(),
       xUserId: xSession?.profile?.id || targetSignup?.x_user_id || undefined,
@@ -431,7 +522,7 @@ function createSignupController(context) {
       submittedAt: now,
       createdAt: targetSignup?.created_at || now,
       updatedAt: now,
-      socialAccounts: mergedSocialAccounts,
+      socialAccounts: socialAccountsWithManualClaims,
       accountReplacements: buildReplacementAuditEvents({
         replacements: pendingReplacements,
         walletAddress,

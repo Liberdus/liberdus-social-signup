@@ -117,6 +117,17 @@ async function dispatchBeforeUnload(page) {
   });
 }
 
+async function clickManualChecklistLink(page, selector) {
+  const link = page.locator(selector);
+  await link.evaluate((anchor) => {
+    anchor.addEventListener("click", (event) => event.preventDefault(), {
+      capture: true,
+      once: true
+    });
+  });
+  await link.click();
+}
+
 test("social actions start disabled until a wallet is connected", async ({ page }) => {
   await installFakeWallet(page, createTestWallet());
   await page.goto("./");
@@ -151,6 +162,31 @@ test("submits a new signup with a fake Discord session", async ({ page }) => {
 
   await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
   await expect(page.locator("#minimumSubmit")).toHaveAttribute("data-state", "done");
+});
+
+test("persists manual follow claims after submit", async ({ page }) => {
+  await installFakeWallet(page, createTestWallet());
+  await page.goto("./");
+  await createDiscordSession(page, { username: "manualclaims" });
+  await page.reload();
+
+  await connectWallet(page);
+  await clickManualChecklistLink(page, "#xChecklistLink");
+  await clickManualChecklistLink(page, "#linkedinStatusRow .task-link");
+  await clickManualChecklistLink(page, "#coinMarketCapStatusRow .task-link");
+  await expect(page.locator("#xStatusRow")).toContainText("Follow complete");
+  await expect(page.locator("#linkedinStatusRow")).toContainText("Follow complete");
+  await expect(page.locator("#coinMarketCapStatusRow")).toContainText("Follow complete");
+
+  await page.locator("#submitButton").click();
+  await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
+
+  await page.reload();
+  await connectWallet(page);
+  await page.locator("#loadSignupButton").click();
+  await expect(page.locator("#xStatusRow")).toContainText("Follow complete");
+  await expect(page.locator("#linkedinStatusRow")).toContainText("Follow complete");
+  await expect(page.locator("#coinMarketCapStatusRow")).toContainText("Follow complete");
 });
 
 test("warns before leaving with unsaved signup progress", async ({ page }) => {

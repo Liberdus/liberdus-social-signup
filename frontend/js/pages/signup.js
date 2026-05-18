@@ -52,6 +52,7 @@ const runtime = {
   walletProof: null,
   existingSignup: null,
   conflictMessage: "",
+  manualClaims: {},
   coinMarketCapOpened: false
 };
 
@@ -129,6 +130,12 @@ const STATUS_TEXT = {
   coinMarketCap: "Follow Liberdus on CoinMarketCap."
 };
 
+const MANUAL_CLAIMS = {
+  xFollow: { provider: "x", checkType: "x_follow_manual" },
+  linkedinFollow: { provider: "linkedin", checkType: "linkedin_follow_manual" },
+  coinMarketCapFollow: { provider: "coinMarketCap", checkType: "coinmarketcap_follow_manual" }
+};
+
 const toast = createToastController({
   element: els.signupToast,
   messageElement: els.signupToastMessage,
@@ -181,6 +188,44 @@ function hasPassedSavedVerification(account, checkType) {
   return (account?.verifications || []).some((verification) => (
     verification?.checkType === checkType && verification.status === "passed"
   ));
+}
+
+function hasSavedClaimedVerification(account, checkType) {
+  return (account?.verifications || []).some((verification) => (
+    verification?.checkType === checkType && ["claimed", "passed"].includes(verification.status)
+  ));
+}
+
+function hasSavedManualClaim(claimKey) {
+  const claim = MANUAL_CLAIMS[claimKey];
+  if (!claim) return false;
+  const account = getSavedSocialAccount(claim.provider);
+  const normalizedProvider = claim.provider === "coinMarketCap" ? "coinMarketCap" : claim.provider;
+  const snapshot = runtime.existingSignup?.verification?.[normalizedProvider];
+  return Boolean(
+    hasSavedClaimedVerification(account, claim.checkType)
+    || snapshot?.followClaim?.claimed
+    || (claimKey === "coinMarketCapFollow" && snapshot?.opened)
+  );
+}
+
+function hasManualClaim(claimKey) {
+  return Boolean(runtime.manualClaims[claimKey] || hasSavedManualClaim(claimKey));
+}
+
+function markManualClaim(claimKey) {
+  if (!MANUAL_CLAIMS[claimKey]) return;
+  runtime.manualClaims[claimKey] = true;
+  if (claimKey === "coinMarketCapFollow") {
+    runtime.coinMarketCapOpened = true;
+  }
+}
+
+function getManualClaimsPayload() {
+  return Object.fromEntries(Object.keys(MANUAL_CLAIMS).map((claimKey) => [
+    claimKey,
+    Boolean(runtime.manualClaims[claimKey])
+  ]));
 }
 
 function isSavedProviderReady(providerId, account) {
@@ -359,6 +404,7 @@ function createProviderLink(provider, link) {
   anchor.dataset.providerId = provider.id;
   anchor.dataset.hrefKey = link.hrefKey || "";
   anchor.dataset.fallbackHrefKey = link.fallbackHrefKey || "";
+  anchor.dataset.manualClaimKey = link.manualClaimKey || "";
   setActionLinkDisabled(anchor, true);
   anchor.addEventListener("click", (event) => {
     if (anchor.getAttribute("aria-disabled") === "true") {
@@ -367,12 +413,15 @@ function createProviderLink(provider, link) {
       return;
     }
 
+    if (link.manualClaimKey) {
+      markManualClaim(link.manualClaimKey);
+    }
     if (provider.onLinkClick) {
       provider.onLinkClick({ runtime, link });
-      syncUi();
     }
+    if (link.manualClaimKey || provider.onLinkClick) syncUi();
   });
-  if (provider.onLinkClick) {
+  if (link.manualClaimKey || provider.onLinkClick) {
     anchor.dataset.tracksClick = "true";
   }
   return anchor;
@@ -608,6 +657,12 @@ function hasUnsavedSocialChanges() {
     return true;
   }
 
+  for (const claimKey of Object.keys(MANUAL_CLAIMS)) {
+    if (runtime.manualClaims[claimKey] && !hasSavedManualClaim(claimKey)) {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -695,7 +750,10 @@ function getProviderTaskStates(provider, { session, savedAccount }) {
   }
 
   if (provider.id === "linkedin") {
-    return { connected, linkDone: false };
+    return {
+      connected,
+      linkDone: hasManualClaim("linkedinFollow")
+    };
   }
 
   if (provider.id === "github") {
@@ -713,7 +771,10 @@ function getProviderTaskStates(provider, { session, savedAccount }) {
   }
 
   if (provider.id === "coinMarketCap") {
-    return { connected: Boolean(runtime.coinMarketCapOpened), linkDone: Boolean(runtime.coinMarketCapOpened) };
+    return {
+      connected: hasManualClaim("coinMarketCapFollow"),
+      linkDone: hasManualClaim("coinMarketCapFollow")
+    };
   }
 
   return { connected, linkDone: false };
@@ -888,12 +949,14 @@ function syncXUi() {
     }));
   }
 
-  els.xChecklistLink.dataset.state = "manual";
+  const xFollowDone = hasManualClaim("xFollow");
+  els.xChecklistLink.dataset.state = xFollowDone ? "done" : "pending";
+  els.xChecklistLink.classList.toggle("is-complete", xFollowDone);
   xTaskNodes.push(createTaskRow({
-    label: "Follow Liberdus",
-    state: "manual",
-    actions: [els.xChecklistLink],
-    actionOnly: true
+    label: xFollowDone ? "Follow complete" : "Follow Liberdus",
+    state: xFollowDone ? "done" : "pending",
+    actions: xFollowDone ? [] : [els.xChecklistLink],
+    actionOnly: !xFollowDone
   }));
   els.xTaskList.replaceChildren(...xTaskNodes);
 
@@ -942,16 +1005,18 @@ function getProfileCompletionTasks() {
   const linkedinAccount = getSavedSocialAccount("linkedin");
   const githubAccount = getSavedSocialAccount("github");
   const youtubeAccount = getSavedSocialAccount("youtube");
-  const cmcOpened = Boolean(runtime.coinMarketCapOpened || runtime.existingSignup?.verification?.coinMarketCap?.opened);
+  const cmcOpened = hasManualClaim("coinMarketCapFollow");
 
   return [
     { id: "wallet", done: hasConnectedWallet() },
     { id: "xSignin", done: Boolean(runtime.xSession?.profile?.id || getSavedSocialAccount("x")) },
+    { id: "xFollow", done: hasManualClaim("xFollow") },
     { id: "discordSignin", done: Boolean(runtime.discordSession?.profile?.id || discordAccount) },
     { id: "discordJoin", done: Boolean(runtime.discordSession?.membership?.isMember || hasPassedSavedVerification(discordAccount, "discord_guild_member")) },
     { id: "telegramSignin", done: Boolean(runtime.telegramSession?.profile?.id || telegramAccount) },
     { id: "telegramJoin", done: Boolean(runtime.telegramSession?.membership?.isMember || hasPassedSavedVerification(telegramAccount, "telegram_group_member")) },
     { id: "linkedinSignin", done: Boolean(runtime.linkedinSession?.profile?.id || linkedinAccount) },
+    { id: "linkedinFollow", done: hasManualClaim("linkedinFollow") },
     { id: "githubSignin", done: Boolean(runtime.githubSession?.profile?.id || githubAccount) },
     { id: "githubStar", done: Boolean(runtime.githubSession?.star?.starred || hasPassedSavedVerification(githubAccount, "github_repo_starred")) },
     { id: "youtubeSignin", done: Boolean(runtime.youtubeSession?.profile?.id || youtubeAccount) },
@@ -1119,6 +1184,7 @@ async function submitSignup() {
         challengeId: walletSignature.challengeId,
         signature: walletSignature.signature,
         coinMarketCapOpened: runtime.coinMarketCapOpened,
+        manualClaims: getManualClaimsPayload(),
         confirmedReplacements
       })
     });
@@ -1248,9 +1314,13 @@ function bindEvents() {
   });
 
   els.xChecklistLink.addEventListener("click", (event) => {
-    if (els.xChecklistLink.getAttribute("aria-disabled") !== "true") return;
-    event.preventDefault();
-    showMessage("Connect a wallet first.", "error");
+    if (els.xChecklistLink.getAttribute("aria-disabled") === "true") {
+      event.preventDefault();
+      showMessage("Connect a wallet first.", "error");
+      return;
+    }
+    markManualClaim("xFollow");
+    syncUi();
   });
 
   els.xDisconnectButton.addEventListener("click", async () => {

@@ -108,6 +108,28 @@ test("saveSignup stores and serializes social accounts and verifications", (t) =
   assert.equal(store.getStats().socialVerificationCount, 1);
 });
 
+test("saveSignup preserves manual claimed verification status", (t) => {
+  const store = withTempStore(t);
+  const saved = store.saveSignup(makeSignupInput({
+    socialAccounts: [makeSocialAccount({
+      provider: "linkedin",
+      providerUserId: "linkedin-1",
+      username: "",
+      displayName: "LinkedIn User",
+      verifications: [{
+        checkType: "linkedin_follow_manual",
+        targetId: "https://www.linkedin.com/company/liberdus",
+        status: "claimed",
+        checkedAt: new Date().toISOString(),
+        rawResult: { claimed: true, source: "user_click" }
+      }]
+    })]
+  }));
+
+  assert.equal(saved.socialAccounts[0].verifications[0].checkType, "linkedin_follow_manual");
+  assert.equal(saved.socialAccounts[0].verifications[0].status, "claimed");
+});
+
 test("updateSignup replaces account rows for the signup", (t) => {
   const store = withTempStore(t);
   const created = store.saveSignup(makeSignupInput({
