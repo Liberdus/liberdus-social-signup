@@ -321,9 +321,15 @@ test("confirms replacing a saved wallet", async ({ page }) => {
   await page.locator("#submitButton").click();
   await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
 
+  await page.locator("#connectButton").click();
+  await expect(page.locator("#changeWalletButton")).toBeVisible();
+  await page.locator("#changeWalletButton").click();
+  await expect(page.locator("#walletConnectTaskRow")).toHaveAttribute("data-state", "pending");
+  await expect(page.locator("#discordStatusRow")).toBeHidden();
   await page.evaluate((nextAddress) => {
     window.__e2eWallet.setAccount(nextAddress);
   }, newWallet.address);
+  await connectWallet(page);
   await expect(page.locator("#walletStatusText")).toContainText("will replace saved wallet");
   await expect(page.locator("#discordStatusRow")).toBeHidden();
   await signWallet(page);

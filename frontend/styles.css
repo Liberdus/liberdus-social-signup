@@ -910,6 +910,12 @@ button:disabled {
   text-overflow: ellipsis;
 }
 
+.wallet-popout-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.wallet-change-button,
 .wallet-disconnect-button { width: 100%; }
 
 .wallet-picker {

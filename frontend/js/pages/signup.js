@@ -44,6 +44,7 @@ const runtime = {
   isLoadingSignup: false,
   isSubmitting: false,
   isAuthRedirecting: false,
+  walletChangeIntent: false,
   xSession: null,
   discordSession: null,
   telegramSession: null,
@@ -69,6 +70,7 @@ const els = {
   walletMenuChainId: document.getElementById("walletMenuChainId"),
   loadSignupButton: document.getElementById("loadSignupButton"),
   copyWalletAddressButton: document.getElementById("copyWalletAddressButton"),
+  changeWalletButton: document.getElementById("changeWalletButton"),
   disconnectButton: document.getElementById("disconnectButton"),
   walletStatusRow: document.getElementById("walletStatusRow"),
   walletStatusText: document.getElementById("walletStatusText"),
@@ -887,6 +889,8 @@ function syncWalletUi() {
   els.walletMenuAddress.textContent = hasWallet ? formatAddressShort(runtime.account) : "-";
   els.walletMenuAddress.title = runtime.account || "";
   els.walletMenuChainId.textContent = runtime.chainName || (runtime.chainId ? String(runtime.chainId) : "-");
+  els.changeWalletButton.hidden = !runtime.existingSignup?.id;
+  els.changeWalletButton.disabled = runtime.isConnectingWallet || runtime.isLoadingSignup || runtime.isSubmitting;
   els.walletStatusRow.dataset.ready = hasWalletProof ? "true" : "false";
   syncChecklistPill(els.walletStatusRow, hasWalletProof);
   setStatusNote(
@@ -1152,7 +1156,11 @@ async function connectSelectedWallet() {
     if (!selectedWalletId) return;
     await connectWallet(runtime, selectedWalletId);
     runtime.walletProof = null;
-    showMessage("Wallet connected.", "success");
+    showMessage(runtime.walletChangeIntent && runtime.existingSignup?.id
+      ? "Replacement wallet connected. Sign wallet to continue."
+      : "Wallet connected.",
+      "success"
+    );
   } finally {
     runtime.isConnectingWallet = false;
     syncUi();
@@ -1198,6 +1206,7 @@ async function submitSignup() {
       chainId: runtime.chainId,
       verifiedAt: new Date().toISOString()
     };
+    runtime.walletChangeIntent = false;
     const savedName = result.signup?.xUsername ? `@${result.signup.xUsername}` : formatAddressShort(result.signup?.walletAddress || walletSignature.walletAddress);
     showMessage(result.updated ? "Signup updated." : `Signup received for ${savedName}.`, "success");
   } catch (error) {
@@ -1271,10 +1280,29 @@ function bindEvents() {
       runtime.walletProof = null;
       runtime.existingSignup = null;
       runtime.conflictMessage = "";
+      runtime.walletChangeIntent = false;
       syncUi();
       showMessage("Wallet disconnected.");
     } catch (error) {
       reportError(error, "Disconnect wallet");
+    }
+  });
+
+  els.changeWalletButton.addEventListener("click", async () => {
+    try {
+      if (!runtime.existingSignup?.id) {
+        showMessage("Load a saved signup before changing its wallet.", "error");
+        return;
+      }
+      runtime.walletChangeIntent = true;
+      await disconnectWallet(runtime);
+      runtime.walletProof = null;
+      runtime.conflictMessage = "";
+      setWalletMenuOpen(false);
+      syncUi();
+      showMessage("Connect the replacement wallet, then sign it.");
+    } catch (error) {
+      reportError(error, "Change wallet");
     }
   });
 
@@ -1406,6 +1434,7 @@ function bindEvents() {
         runtime.conflictMessage = "";
       }
       if (previousAccount && nextAccount && previousAccount !== nextAccount) {
+        if (hadLoadedSignup) runtime.walletChangeIntent = true;
         showMessage(hadLoadedSignup
           ? `Wallet changed to ${formatAddressShort(nextAccount)}. Submit and sign to replace the saved wallet.`
           : `Wallet changed to ${formatAddressShort(nextAccount)}.`
