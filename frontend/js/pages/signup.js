@@ -86,6 +86,7 @@ const els = {
   profileBarFill: document.getElementById("profileBarFill"),
   profileGateText: document.getElementById("profileGateText"),
   minimumWallet: document.getElementById("minimumWallet"),
+  minimumWalletSign: document.getElementById("minimumWalletSign"),
   minimumSocial: document.getElementById("minimumSocial"),
   minimumSubmit: document.getElementById("minimumSubmit"),
   walletConnectTaskRow: document.getElementById("walletConnectTaskRow"),
@@ -875,7 +876,7 @@ function syncWalletUi() {
   els.loadSignupButton.dataset.state = hasWalletProof ? "done" : "pending";
   els.loadSignupButton.textContent = runtime.isLoadingSignup
     ? "Signing..."
-    : "Sign wallet";
+    : "Sign wallet to unlock checklist";
   setTaskState(els.walletConnectTaskRow, hasWallet ? "done" : "pending");
   setTaskState(els.walletSignTaskRow, hasWalletProof ? "done" : "pending");
   els.walletConnectTaskRow.classList.toggle("task-row-action-only", !hasWallet);
@@ -883,9 +884,9 @@ function syncWalletUi() {
   els.walletSignTaskRow.classList.toggle("task-row-action-only", !hasWalletProof);
   els.walletSignTaskRow.classList.toggle("task-row-inline-actions", false);
   els.walletConnectTaskTitle.textContent = "Connected wallet";
-  els.walletSignTaskTitle.textContent = hasWalletProof ? "Signed wallet" : "Sign wallet";
+  els.walletSignTaskTitle.textContent = hasWalletProof ? "Signed wallet" : "Sign wallet to unlock checklist";
   els.walletConnectTaskDetail.textContent = hasWallet ? formatAddressShort(runtime.account) : "";
-  els.walletSignTaskDetail.textContent = hasWalletProof ? "Saved signup loaded." : "Loads saved signup.";
+  els.walletSignTaskDetail.textContent = hasWalletProof ? "Checklist unlocked." : "Proves wallet ownership and loads saved accounts.";
   els.walletMenuAddress.textContent = hasWallet ? formatAddressShort(runtime.account) : "-";
   els.walletMenuAddress.title = runtime.account || "";
   els.walletMenuChainId.textContent = runtime.chainName || (runtime.chainId ? String(runtime.chainId) : "-");
@@ -1029,7 +1030,7 @@ function getProfileCompletionTasks() {
   ];
 }
 
-function syncProfileMeter({ ready, walletReady, requiredSocialReady, savedCurrent }) {
+function syncProfileMeter({ ready, walletReady, walletVerified, requiredSocialReady, savedCurrent }) {
   const tasks = getProfileCompletionTasks();
   const completeCount = tasks.filter((task) => task.done).length;
   const totalCount = tasks.length || 1;
@@ -1043,6 +1044,8 @@ function syncProfileMeter({ ready, walletReady, requiredSocialReady, savedCurren
     els.profileGateText.textContent = "Minimum complete. More tasks may strengthen future reward eligibility.";
   } else if (!walletReady) {
     els.profileGateText.textContent = "Connect a wallet to start your reward profile.";
+  } else if (!walletVerified) {
+    els.profileGateText.textContent = "Sign your wallet to unlock the social checklist.";
   } else if (!requiredSocialReady) {
     els.profileGateText.textContent = "Connect at least one required social account to submit.";
   } else {
@@ -1050,6 +1053,7 @@ function syncProfileMeter({ ready, walletReady, requiredSocialReady, savedCurren
   }
 
   setTaskState(els.minimumWallet, walletReady ? "done" : "pending");
+  setTaskState(els.minimumWalletSign, walletVerified ? "done" : walletReady ? "ready" : "pending");
   setTaskState(els.minimumSocial, requiredSocialReady ? "done" : "pending");
   setTaskState(els.minimumSubmit, runtime.conflictMessage ? "error" : savedCurrent ? "done" : ready ? "ready" : "pending");
 }
@@ -1069,7 +1073,7 @@ function syncSubmitUi() {
   els.submitButton.disabled = !ready || runtime.isSubmitting;
   els.submitButton.textContent = runtime.isSubmitting ? "Signing..." : runtime.existingSignup ? "Update & Sign" : "Submit & Sign";
 
-  syncProfileMeter({ ready, walletReady, requiredSocialReady, savedCurrent });
+  syncProfileMeter({ ready, walletReady, walletVerified, requiredSocialReady, savedCurrent });
 }
 
 function syncUi() {

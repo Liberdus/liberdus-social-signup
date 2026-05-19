@@ -768,6 +768,11 @@ h3 { margin-bottom: 8px; font-size: 1.05rem; }
   background: var(--accent-strong);
 }
 
+.minimum-chip[data-state="ready"]::before {
+  content: "!";
+  margin-right: 5px;
+}
+
 .minimum-chip[data-state="error"] {
   color: #3a0d0d;
   border-color: transparent;
@@ -779,6 +784,25 @@ h3 { margin-bottom: 8px; font-size: 1.05rem; }
   min-height: 38px;
   border-radius: 12px;
   flex: 0 0 auto;
+}
+
+.wallet-load-button:not([hidden]) {
+  min-width: min(100%, 250px);
+  min-height: 48px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 14px;
+  color: #111930;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  background: linear-gradient(135deg, #ffc86d 0%, var(--accent) 46%, #e48e17 100%);
+  box-shadow: 0 14px 34px rgba(251, 175, 64, 0.24);
+}
+
+.wallet-load-button:not([hidden]):hover:not(:disabled) {
+  color: #111930;
+  background: linear-gradient(135deg, #ffd487 0%, #ffb94d 46%, #ec981f 100%);
+  box-shadow: 0 16px 38px rgba(251, 175, 64, 0.28);
 }
 
 .form-grid {
