@@ -321,14 +321,23 @@ h3 { margin-bottom: 8px; font-size: 1.05rem; }
   background: rgba(251, 175, 64, 0.1);
 }
 
+.provider-mark img {
+  display: block;
+  width: 21px;
+  height: 21px;
+  object-fit: contain;
+  filter: invert(1);
+}
+
 .provider-mark-wallet { color: #111930; background: var(--accent-strong); }
-.provider-mark-x { background: #070707; border-color: rgba(255, 255, 255, 0.16); }
-.provider-mark-discord { background: #5865f2; border-color: rgba(255, 255, 255, 0.18); }
-.provider-mark-telegram { background: #229ed9; border-color: rgba(255, 255, 255, 0.18); }
-.provider-mark-linkedin { background: #0a66c2; border-color: rgba(255, 255, 255, 0.18); text-transform: none; }
-.provider-mark-github { background: #171515; border-color: rgba(255, 255, 255, 0.18); font-size: 0.78rem; }
-.provider-mark-youtube { background: #ff0033; border-color: rgba(255, 255, 255, 0.18); font-size: 0.78rem; }
-.provider-mark-coinMarketCap { color: #071542; background: #dfe6ff; font-size: 0.66rem; }
+.provider-mark-x { background: #000000; border-color: rgba(255, 255, 255, 0.16); }
+.provider-mark-discord { background: #5865F2; border-color: rgba(255, 255, 255, 0.18); }
+.provider-mark-telegram { background: #26A5E4; border-color: rgba(255, 255, 255, 0.18); }
+.provider-mark-linkedin { background: #2867B2; border-color: rgba(255, 255, 255, 0.18); text-transform: none; }
+.provider-mark-linkedin img { filter: none; }
+.provider-mark-github { background: #181717; border-color: rgba(255, 255, 255, 0.18); font-size: 0.78rem; }
+.provider-mark-youtube { background: #FF0033; border-color: rgba(255, 255, 255, 0.18); font-size: 0.78rem; }
+.provider-mark-coinMarketCap { background: #3861FB; border-color: rgba(255, 255, 255, 0.18); font-size: 0.66rem; }
 
 .checklist-item:not([data-required="true"]) .status-dot {
   border-color: rgba(177, 191, 237, 0.58);

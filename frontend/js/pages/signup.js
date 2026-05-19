@@ -123,6 +123,15 @@ const PROVIDER_MARKS = {
   coinMarketCap: "CMC"
 };
 
+const PROVIDER_MARK_ICONS = {
+  discord: "./assets/discord.svg",
+  telegram: "./assets/telegram.svg",
+  linkedin: "./assets/LinkedIn.svg",
+  github: "./assets/github.svg",
+  youtube: "./assets/youtube.svg",
+  coinMarketCap: "./assets/coinmarketcap.svg"
+};
+
 const STATUS_TEXT = {
   wallet: "Connect and sign with your wallet.",
   x: "Follow @Liberdus on X.com.",
@@ -512,7 +521,14 @@ function renderProviderRows() {
     const mark = document.createElement("span");
     mark.className = `provider-mark provider-mark-${provider.id}`;
     mark.setAttribute("aria-hidden", "true");
-    mark.textContent = PROVIDER_MARKS[provider.id] || provider.title.slice(0, 2);
+    if (PROVIDER_MARK_ICONS[provider.id]) {
+      const icon = document.createElement("img");
+      icon.src = PROVIDER_MARK_ICONS[provider.id];
+      icon.alt = "";
+      mark.append(icon);
+    } else {
+      mark.textContent = PROVIDER_MARKS[provider.id] || provider.title.slice(0, 2);
+    }
 
     const copy = document.createElement("div");
     copy.className = "checklist-copy";
