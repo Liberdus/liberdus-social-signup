@@ -34,6 +34,22 @@ function createAdminController(context) {
     return session;
   }
 
+  function getSignupFilters(searchParams) {
+    return {
+      search: searchParams.get("search") || "",
+      limit: searchParams.get("limit") || "50",
+      offset: searchParams.get("offset") || "0",
+      provider: searchParams.get("provider") || "",
+      checkType: searchParams.get("checkType") || "",
+      checkStatus: searchParams.get("checkStatus") || "",
+      manualClaim: searchParams.get("manualClaim") || "",
+      changed: searchParams.get("changed") || "",
+      status: searchParams.get("status") || "",
+      submittedFrom: searchParams.get("submittedFrom") || "",
+      submittedTo: searchParams.get("submittedTo") || ""
+    };
+  }
+
   async function handleLogin(request, response) {
     const credentials = getCredentials();
     if (!credentials.password) {
@@ -63,23 +79,19 @@ function createAdminController(context) {
 
   function handleSignupList(request, response, requestUrl) {
     getRequiredSession(request);
-    const result = signupStore.listSignups({
-      search: requestUrl.searchParams.get("search") || "",
-      limit: requestUrl.searchParams.get("limit") || "50",
-      offset: requestUrl.searchParams.get("offset") || "0"
-    });
+    const result = signupStore.listSignups(getSignupFilters(requestUrl.searchParams));
     writeJson(response, 200, {
       summary: signupStore.getStats(),
       total: result.total,
       limit: result.limit,
       offset: result.offset,
-      signups: result.rows.map((row) => signupStore.serializeSignup(row))
+      signups: result.signups
     });
   }
 
-  function handleSignupExport(request, response) {
+  function handleSignupExport(request, response, requestUrl) {
     getRequiredSession(request);
-    writeText(response, 200, signupStore.exportCsv(), "text/csv; charset=utf-8", {
+    writeText(response, 200, signupStore.exportCsv(getSignupFilters(requestUrl.searchParams)), "text/csv; charset=utf-8", {
       "Content-Disposition": `attachment; filename="liberdus-social-signups.csv"`
     });
   }

@@ -1,22 +1,60 @@
 const crypto = require("node:crypto");
 const { parseJsonObject, stringifyJsonObject } = require("./json-utils");
 
-const CSV_COLUMNS = [
+const SOCIAL_PROVIDER_ORDER = ["x", "discord", "telegram", "linkedin", "github", "youtube"];
+const ADMIN_CSV_COLUMNS = [
+  "signup_id",
   "submitted_at",
-  "x_username",
-  "x_user_id",
+  "updated_at",
   "wallet_address",
-  "email",
-  "display_name",
-  "country",
-  "interest",
+  "wallet_chain_id",
+  "x_user_id",
+  "x_username",
+  "x_display_name",
+  "x_signed_in",
+  "x_verification_badge",
+  "x_follow_claimed",
+  "discord_user_id",
   "discord_username",
+  "discord_display_name",
+  "discord_signed_in",
+  "discord_server",
+  "telegram_user_id",
   "telegram_username",
-  "linkedin_url",
-  "status"
+  "telegram_display_name",
+  "telegram_signed_in",
+  "telegram_group",
+  "linkedin_user_id",
+  "linkedin_display_name",
+  "linkedin_signed_in",
+  "linkedin_follow_claimed",
+  "github_user_id",
+  "github_username",
+  "github_display_name",
+  "github_signed_in",
+  "github_starred_repo",
+  "youtube_channel_id",
+  "youtube_username",
+  "youtube_display_name",
+  "youtube_signed_in",
+  "youtube_subscribed",
+  "coinmarketcap_follow_claimed",
+  "has_account_changes",
+  "wallet_changed",
+  "social_changed"
 ];
 
-const SOCIAL_PROVIDER_ORDER = ["x", "discord", "telegram", "linkedin", "github", "youtube"];
+const MANUAL_CHECK_TYPES = new Set([
+  "x_follow_manual",
+  "linkedin_follow_manual",
+  "coinmarketcap_follow_manual"
+]);
+
+const MANUAL_CLAIM_FILTERS = {
+  x_follow_manual: { provider: "x", checkType: "x_follow_manual" },
+  linkedin_follow_manual: { provider: "linkedin", checkType: "linkedin_follow_manual" },
+  coinmarketcap_follow_manual: { provider: "coinMarketCap", checkType: "coinmarketcap_follow_manual" }
+};
 
 function serializeSocialVerification(row) {
   if (!row) return null;
@@ -129,6 +167,230 @@ function normalizeSocialStatus(value) {
 function normalizeProviderOrder(provider) {
   const index = SOCIAL_PROVIDER_ORDER.indexOf(provider);
   return index === -1 ? SOCIAL_PROVIDER_ORDER.length : index;
+}
+
+function normalizeFilterValue(value) {
+  return String(value || "").trim();
+}
+
+function normalizeFilterStatus(value) {
+  const status = normalizeFilterValue(value).toLowerCase();
+  return ["passed", "failed", "unknown", "claimed"].includes(status) ? status : "";
+}
+
+function normalizeDateBoundary(value, endOfDay = false) {
+  const text = normalizeFilterValue(value);
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/u.test(text)) {
+    return `${text}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`;
+  }
+  const timestamp = Date.parse(text);
+  return Number.isNaN(timestamp) ? "" : new Date(timestamp).toISOString();
+}
+
+function getSocialAccount(signup, provider) {
+  const normalizedProvider = normalizeFilterValue(provider).toLowerCase();
+  if (!normalizedProvider) return null;
+  const account = (signup.socialAccounts || []).find((candidate) => candidate.provider === normalizedProvider);
+  if (account) return account;
+  if (normalizedProvider === "x" && signup.xUserId) {
+    return {
+      provider: "x",
+      providerUserId: signup.xUserId,
+      username: signup.xUsername || "",
+      displayName: signup.xName || signup.xUsername || "",
+      profileUrl: signup.xUsername ? `https://x.com/${signup.xUsername}` : "",
+      verifications: []
+    };
+  }
+  return null;
+}
+
+function getVerification(account, checkType) {
+  if (!account || !checkType) return null;
+  return (account.verifications || []).find((verification) => verification.checkType === checkType) || null;
+}
+
+function getCoinMarketCapClaim(signup) {
+  const coinMarketCap = signup.verification?.coinMarketCap;
+  if (!coinMarketCap?.followClaim?.claimed && !coinMarketCap?.opened) return null;
+  return {
+    checkType: "coinmarketcap_follow_manual",
+    status: "claimed",
+    checkedAt: coinMarketCap.followClaim?.claimedAt || signup.updatedAt || signup.submittedAt,
+    rawResult: coinMarketCap.followClaim || {
+      claimed: true,
+      opened: true,
+      source: "coinmarketcap_opened"
+    }
+  };
+}
+
+function getAllVerifications(signup) {
+  const accountVerifications = (signup.socialAccounts || []).flatMap((account) => account.verifications || []);
+  const coinMarketCapClaim = getCoinMarketCapClaim(signup);
+  return coinMarketCapClaim ? [...accountVerifications, coinMarketCapClaim] : accountVerifications;
+}
+
+function getCheckStatus(signup, provider, checkType) {
+  const account = getSocialAccount(signup, provider);
+  const verification = getVerification(account, checkType);
+  return verification?.status || "";
+}
+
+function getSignedInValue(signup, provider) {
+  return getSocialAccount(signup, provider)?.providerUserId ? "yes" : "no";
+}
+
+function getMappedCheckValue(signup, provider, checkType, labels) {
+  const status = getCheckStatus(signup, provider, checkType);
+  if (status === "passed") return labels.passed;
+  if (status === "failed") return labels.failed;
+  if (status === "unknown") return "could_not_verify";
+  return "missing";
+}
+
+function getManualClaim(signup, checkType) {
+  if (checkType === "coinmarketcap_follow_manual") return getCoinMarketCapClaim(signup);
+  const definition = MANUAL_CLAIM_FILTERS[checkType];
+  if (!definition) return null;
+  return getVerification(getSocialAccount(signup, definition.provider), definition.checkType);
+}
+
+function hasProvider(signup, provider) {
+  const normalizedProvider = normalizeFilterValue(provider).toLowerCase();
+  if (!normalizedProvider) return true;
+  if (normalizedProvider === "coinmarketcap") return Boolean(getCoinMarketCapClaim(signup));
+  return Boolean(getSocialAccount(signup, normalizedProvider)?.providerUserId);
+}
+
+function hasChangedAccount(signup, changedFilter) {
+  const value = normalizeFilterValue(changedFilter).toLowerCase();
+  if (!value) return true;
+  const replacements = signup.replacementHistory || [];
+  if (value === "any") return replacements.length > 0;
+  if (value === "wallet") return replacements.some((replacement) => replacement.accountType === "wallet");
+  if (value === "social") return replacements.some((replacement) => replacement.accountType === "social");
+  return true;
+}
+
+function matchesCheckFilter(signup, checkType, checkStatus) {
+  const normalizedCheckType = normalizeFilterValue(checkType);
+  const normalizedStatus = normalizeFilterStatus(checkStatus);
+  if (!normalizedCheckType && !normalizedStatus) return true;
+
+  const verifications = normalizedCheckType
+    ? getAllVerifications(signup).filter((verification) => verification.checkType === normalizedCheckType)
+    : getAllVerifications(signup);
+
+  if (!verifications.length) return false;
+  if (!normalizedStatus) return true;
+  return verifications.some((verification) => verification.status === normalizedStatus);
+}
+
+function matchesManualClaimFilter(signup, manualClaim) {
+  const value = normalizeFilterValue(manualClaim);
+  if (!value) return true;
+  if (value === "any") {
+    return [...MANUAL_CHECK_TYPES].some((checkType) => {
+      const claim = getManualClaim(signup, checkType);
+      return claim?.status === "claimed" || claim?.status === "passed";
+    });
+  }
+  const claim = getManualClaim(signup, value);
+  return claim?.status === "claimed" || claim?.status === "passed";
+}
+
+function matchesDateFilter(signup, submittedFrom, submittedTo) {
+  const submittedAt = signup.submittedAt || "";
+  if (submittedFrom && submittedAt < submittedFrom) return false;
+  if (submittedTo && submittedAt > submittedTo) return false;
+  return true;
+}
+
+function matchesAdminFilters(signup, filters = {}) {
+  if (!hasProvider(signup, filters.provider)) return false;
+  if (!matchesCheckFilter(signup, filters.checkType, filters.checkStatus)) return false;
+  if (!matchesManualClaimFilter(signup, filters.manualClaim)) return false;
+  if (!hasChangedAccount(signup, filters.changed)) return false;
+  if (filters.status && signup.status !== filters.status) return false;
+  return matchesDateFilter(
+    signup,
+    normalizeDateBoundary(filters.submittedFrom),
+    normalizeDateBoundary(filters.submittedTo, true)
+  );
+}
+
+function getAccountField(signup, provider, field) {
+  const account = getSocialAccount(signup, provider);
+  return account ? account[field] || "" : "";
+}
+
+function getManualClaimValue(signup, checkType) {
+  const claim = getManualClaim(signup, checkType);
+  return claim?.status === "claimed" || claim?.status === "passed" ? "claimed" : "missing";
+}
+
+function buildAdminCsvRow(signup) {
+  const replacements = signup.replacementHistory || [];
+  const hasWalletChanges = replacements.some((replacement) => replacement.accountType === "wallet");
+  const hasSocialChanges = replacements.some((replacement) => replacement.accountType === "social");
+  return {
+    signup_id: signup.id,
+    submitted_at: signup.submittedAt,
+    updated_at: signup.updatedAt,
+    wallet_address: signup.walletAddress,
+    wallet_chain_id: signup.walletChainId,
+    x_user_id: getAccountField(signup, "x", "providerUserId"),
+    x_username: getAccountField(signup, "x", "username"),
+    x_display_name: getAccountField(signup, "x", "displayName"),
+    x_signed_in: getSignedInValue(signup, "x"),
+    x_verification_badge: getMappedCheckValue(signup, "x", "x_verified", {
+      passed: "verified",
+      failed: "not_verified"
+    }),
+    x_follow_claimed: getManualClaimValue(signup, "x_follow_manual"),
+    discord_user_id: getAccountField(signup, "discord", "providerUserId"),
+    discord_username: getAccountField(signup, "discord", "username"),
+    discord_display_name: getAccountField(signup, "discord", "displayName"),
+    discord_signed_in: getSignedInValue(signup, "discord"),
+    discord_server: getMappedCheckValue(signup, "discord", "discord_guild_member", {
+      passed: "joined",
+      failed: "not_joined"
+    }),
+    telegram_user_id: getAccountField(signup, "telegram", "providerUserId"),
+    telegram_username: getAccountField(signup, "telegram", "username"),
+    telegram_display_name: getAccountField(signup, "telegram", "displayName"),
+    telegram_signed_in: getSignedInValue(signup, "telegram"),
+    telegram_group: getMappedCheckValue(signup, "telegram", "telegram_group_member", {
+      passed: "joined",
+      failed: "not_joined"
+    }),
+    linkedin_user_id: getAccountField(signup, "linkedin", "providerUserId"),
+    linkedin_display_name: getAccountField(signup, "linkedin", "displayName"),
+    linkedin_signed_in: getSignedInValue(signup, "linkedin"),
+    linkedin_follow_claimed: getManualClaimValue(signup, "linkedin_follow_manual"),
+    github_user_id: getAccountField(signup, "github", "providerUserId"),
+    github_username: getAccountField(signup, "github", "username"),
+    github_display_name: getAccountField(signup, "github", "displayName"),
+    github_signed_in: getSignedInValue(signup, "github"),
+    github_starred_repo: getMappedCheckValue(signup, "github", "github_repo_starred", {
+      passed: "starred",
+      failed: "not_starred"
+    }),
+    youtube_channel_id: getAccountField(signup, "youtube", "providerUserId"),
+    youtube_username: getAccountField(signup, "youtube", "username"),
+    youtube_display_name: getAccountField(signup, "youtube", "displayName"),
+    youtube_signed_in: getSignedInValue(signup, "youtube"),
+    youtube_subscribed: getMappedCheckValue(signup, "youtube", "youtube_channel_subscribed", {
+      passed: "subscribed",
+      failed: "not_subscribed"
+    }),
+    coinmarketcap_follow_claimed: getManualClaimValue(signup, "coinmarketcap_follow_manual"),
+    has_account_changes: replacements.length ? "yes" : "no",
+    wallet_changed: hasWalletChanges ? "yes" : "no",
+    social_changed: hasSocialChanges ? "yes" : "no"
+  };
 }
 
 function createSignupStore(db) {
@@ -477,69 +739,62 @@ function createSignupStore(db) {
     return getBySocialAccount.get(normalizedProvider, normalizedProviderUserId) || null;
   }
 
-  function listSignups({ search = "", limit = 50, offset = 0 } = {}) {
-    const normalizedLimit = normalizeLimit(limit);
-    const normalizedOffset = normalizeOffset(offset);
+  function getSearchedSignupRows(search = "") {
     const term = String(search || "").trim().toLowerCase();
 
-    if (term) {
-      const likeTerm = `%${term}%`;
-      const rows = db.prepare(`
+    if (!term) {
+      return db.prepare(`
         SELECT *
         FROM signups
-        WHERE LOWER(x_username) LIKE @term
-           OR LOWER(x_user_id) LIKE @term
-           OR LOWER(wallet_address) LIKE @term
-           OR LOWER(email) LIKE @term
-           OR LOWER(display_name) LIKE @term
-           OR LOWER(discord_username) LIKE @term
-           OR LOWER(telegram_username) LIKE @term
-           OR LOWER(linkedin_url) LIKE @term
-           OR EXISTS (
-                SELECT 1
-                FROM signup_social_accounts account
-                WHERE account.signup_id = signups.id
-                  AND (
-                    LOWER(account.username) LIKE @term
-                    OR LOWER(account.display_name) LIKE @term
-                    OR LOWER(account.provider_user_id) LIKE @term
-                  )
-             )
         ORDER BY submitted_at DESC, updated_at DESC
-        LIMIT @limit OFFSET @offset
-      `).all({ term: likeTerm, limit: normalizedLimit, offset: normalizedOffset });
-      const total = db.prepare(`
-        SELECT COUNT(*) AS count
-        FROM signups
-        WHERE LOWER(x_username) LIKE @term
-           OR LOWER(x_user_id) LIKE @term
-           OR LOWER(wallet_address) LIKE @term
-           OR LOWER(email) LIKE @term
-           OR LOWER(display_name) LIKE @term
-           OR LOWER(discord_username) LIKE @term
-           OR LOWER(telegram_username) LIKE @term
-           OR LOWER(linkedin_url) LIKE @term
-           OR EXISTS (
-                SELECT 1
-                FROM signup_social_accounts account
-                WHERE account.signup_id = signups.id
-                  AND (
-                    LOWER(account.username) LIKE @term
-                    OR LOWER(account.display_name) LIKE @term
-                    OR LOWER(account.provider_user_id) LIKE @term
-                  )
-             )
-      `).get({ term: likeTerm }).count;
-      return { rows, total, limit: normalizedLimit, offset: normalizedOffset };
+      `).all();
     }
 
-    const rows = db.prepare(`
+    const likeTerm = `%${term}%`;
+    return db.prepare(`
       SELECT *
       FROM signups
+      WHERE LOWER(id) LIKE @term
+         OR LOWER(x_username) LIKE @term
+         OR LOWER(x_user_id) LIKE @term
+         OR LOWER(wallet_address) LIKE @term
+         OR LOWER(email) LIKE @term
+         OR LOWER(display_name) LIKE @term
+         OR LOWER(discord_username) LIKE @term
+         OR LOWER(telegram_username) LIKE @term
+         OR LOWER(linkedin_url) LIKE @term
+         OR EXISTS (
+              SELECT 1
+              FROM signup_social_accounts account
+              WHERE account.signup_id = signups.id
+                AND (
+                  LOWER(account.provider) LIKE @term
+                  OR LOWER(account.username) LIKE @term
+                  OR LOWER(account.display_name) LIKE @term
+                  OR LOWER(account.provider_user_id) LIKE @term
+                  OR LOWER(account.profile_url) LIKE @term
+                )
+           )
       ORDER BY submitted_at DESC, updated_at DESC
-      LIMIT @limit OFFSET @offset
-    `).all({ limit: normalizedLimit, offset: normalizedOffset });
-    return { rows, total: countAll.get().count, limit: normalizedLimit, offset: normalizedOffset };
+    `).all({ term: likeTerm });
+  }
+
+  function getFilteredSerializedSignups(filters = {}) {
+    return getSearchedSignupRows(filters.search)
+      .map(getSerializedSignup)
+      .filter((signup) => matchesAdminFilters(signup, filters));
+  }
+
+  function listSignups(filters = {}) {
+    const normalizedLimit = normalizeLimit(filters.limit);
+    const normalizedOffset = normalizeOffset(filters.offset);
+    const signups = getFilteredSerializedSignups(filters);
+    return {
+      signups: signups.slice(normalizedOffset, normalizedOffset + normalizedLimit),
+      total: signups.length,
+      limit: normalizedLimit,
+      offset: normalizedOffset
+    };
   }
 
   function getStats() {
@@ -552,11 +807,12 @@ function createSignupStore(db) {
     };
   }
 
-  function exportCsv() {
-    const rows = db.prepare("SELECT * FROM signups ORDER BY submitted_at DESC").all();
-    const lines = [CSV_COLUMNS.join(",")];
-    for (const row of rows) {
-      lines.push(CSV_COLUMNS.map((column) => escapeCsvValue(row[column])).join(","));
+  function exportCsv(filters = {}) {
+    const signups = getFilteredSerializedSignups(filters);
+    const lines = [ADMIN_CSV_COLUMNS.join(",")];
+    for (const signup of signups) {
+      const row = buildAdminCsvRow(signup);
+      lines.push(ADMIN_CSV_COLUMNS.map((column) => escapeCsvValue(row[column])).join(","));
     }
     return `${lines.join("\n")}\n`;
   }

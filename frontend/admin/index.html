@@ -73,7 +73,75 @@
         <form id="filterForm" class="management-filter-form" autocomplete="off">
           <label class="management-filter-field">
             <span>Search</span>
-            <input id="searchInput" type="text" placeholder="X username, wallet, email, social">
+            <input id="searchInput" type="text" placeholder="Wallet, username, provider ID">
+          </label>
+          <label>
+            <span>Provider</span>
+            <select id="providerFilter">
+              <option value="">Any provider</option>
+              <option value="x">X</option>
+              <option value="discord">Discord</option>
+              <option value="telegram">Telegram</option>
+              <option value="linkedin">LinkedIn</option>
+              <option value="github">GitHub</option>
+              <option value="youtube">YouTube</option>
+              <option value="coinmarketcap">CoinMarketCap</option>
+            </select>
+          </label>
+          <label>
+            <span>Check</span>
+            <select id="checkTypeFilter">
+              <option value="">Any check</option>
+              <option value="x_verified">X verified</option>
+              <option value="discord_guild_member">Discord joined</option>
+              <option value="telegram_group_member">Telegram joined</option>
+              <option value="github_repo_starred">GitHub starred</option>
+              <option value="youtube_channel_subscribed">YouTube subscribed</option>
+            </select>
+          </label>
+          <label>
+            <span>Check status</span>
+            <select id="checkStatusFilter">
+              <option value="">Any status</option>
+              <option value="passed">Passed</option>
+              <option value="failed">Not found / not verified</option>
+              <option value="unknown">Could not verify</option>
+              <option value="claimed">Claimed</option>
+            </select>
+          </label>
+          <label>
+            <span>Manual claim</span>
+            <select id="manualClaimFilter">
+              <option value="">Any claim state</option>
+              <option value="any">Has manual claim</option>
+              <option value="x_follow_manual">X follow</option>
+              <option value="linkedin_follow_manual">LinkedIn follow</option>
+              <option value="coinmarketcap_follow_manual">CMC follow</option>
+            </select>
+          </label>
+          <label>
+            <span>Changed</span>
+            <select id="changedFilter">
+              <option value="">Any change state</option>
+              <option value="any">Has changes</option>
+              <option value="wallet">Wallet changed</option>
+              <option value="social">Social changed</option>
+            </select>
+          </label>
+          <label>
+            <span>Status</span>
+            <select id="statusFilter">
+              <option value="">Any status</option>
+              <option value="received">Received</option>
+            </select>
+          </label>
+          <label>
+            <span>From</span>
+            <input id="submittedFromInput" type="date">
+          </label>
+          <label>
+            <span>To</span>
+            <input id="submittedToInput" type="date">
           </label>
           <label class="management-page-size-field">
             <span>Rows</span>
@@ -94,15 +162,14 @@
             <thead>
               <tr>
                 <th>Submitted</th>
-                <th>X</th>
                 <th>Wallet</th>
-                <th>Email</th>
-                <th>Socials</th>
-                <th>Status</th>
+                <th>Profile</th>
+                <th>Changes</th>
+                <th>Details</th>
               </tr>
             </thead>
             <tbody id="submissionsBody">
-              <tr><td colspan="6" class="empty-row">Login to load submissions.</td></tr>
+              <tr><td colspan="5" class="empty-row">Login to load submissions.</td></tr>
             </tbody>
           </table>
         </div>

@@ -243,3 +243,91 @@ test("X social conflict checks legacy x_user_id and social account rows", (t) =>
   assert.equal(conflict.owner.id, created.id);
   assert.match(conflict.message, /X account is already linked/);
 });
+
+test("listSignups filters normalized admin account and verification data", (t) => {
+  const store = withTempStore(t);
+  const created = store.saveSignup(makeSignupInput({
+    walletAddress: WALLETS.one,
+    socialAccounts: [
+      makeSocialAccount({
+        provider: "github",
+        providerUserId: "github-1",
+        username: "liberdusfan",
+        displayName: "Liberdus Fan",
+        verifications: [{
+          checkType: "github_repo_starred",
+          targetId: "Liberdus/web-client-v2",
+          status: "passed",
+          checkedAt: new Date().toISOString(),
+          rawResult: { starred: true }
+        }]
+      })
+    ]
+  }));
+  const changed = store.updateSignup(makeSignupInput({
+    id: created.id,
+    walletAddress: WALLETS.one,
+    createdAt: created.createdAt,
+    socialAccounts: created.socialAccounts,
+    accountReplacements: [{
+      accountType: "wallet",
+      provider: "wallet",
+      oldProviderUserId: WALLETS.three,
+      newProviderUserId: WALLETS.one,
+      oldLabel: WALLETS.three,
+      newLabel: WALLETS.one,
+      authorizedWalletAddress: WALLETS.three,
+      rawContext: { reason: "signup_update" }
+    }]
+  }));
+  store.saveSignup(makeSignupInput({
+    walletAddress: WALLETS.two,
+    socialAccounts: [
+      makeSocialAccount({
+        provider: "linkedin",
+        providerUserId: "linkedin-1",
+        displayName: "LinkedIn User",
+        verifications: [{
+          checkType: "linkedin_follow_manual",
+          targetId: "https://www.linkedin.com/company/liberdus",
+          status: "claimed",
+          checkedAt: new Date().toISOString(),
+          rawResult: { claimed: true }
+        }]
+      })
+    ]
+  }));
+
+  assert.equal(store.listSignups({ provider: "github" }).signups[0].id, changed.id);
+  assert.equal(store.listSignups({ checkType: "github_repo_starred", checkStatus: "passed" }).total, 1);
+  assert.equal(store.listSignups({ manualClaim: "linkedin_follow_manual" }).total, 1);
+  assert.equal(store.listSignups({ changed: "wallet" }).total, 1);
+
+  const csv = store.exportCsv({ provider: "github" });
+  const header = csv.split("\n")[0];
+  assert.match(header, /github_starred_repo/);
+  assert.doesNotMatch(header, /status/);
+  assert.doesNotMatch(header, /replacement_count/);
+  assert.match(csv, /liberdusfan/);
+  assert.match(csv, /starred/);
+  assert.match(csv, /has_account_changes/);
+});
+
+test("CoinMarketCap opened snapshot is treated as a manual admin claim", (t) => {
+  const store = withTempStore(t);
+  store.saveSignup(makeSignupInput({
+    verificationJson: JSON.stringify({
+      coinMarketCap: {
+        opened: true,
+        verified: false
+      }
+    })
+  }));
+
+  assert.equal(store.listSignups({ provider: "coinmarketcap" }).total, 1);
+  assert.equal(store.listSignups({ manualClaim: "coinmarketcap_follow_manual" }).total, 1);
+
+  const csv = store.exportCsv({ provider: "coinmarketcap" });
+  assert.match(csv, /coinmarketcap_follow_claimed/);
+  assert.match(csv, /claimed/);
+});

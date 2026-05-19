@@ -200,7 +200,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "GET" && pathname === "/api/admin/signups/export") {
       requireAllowedOrigin(request, response);
-      adminController.handleSignupExport(request, response);
+      adminController.handleSignupExport(request, response, requestUrl);
       return;
     }
 
