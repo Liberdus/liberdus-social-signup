@@ -174,6 +174,12 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && pathname === "/api/signup/session") {
+      requireAllowedOrigin(request, response);
+      await signupController.handleSessionLookup(request, response);
+      return;
+    }
+
     if (request.method === "POST" && pathname === "/api/signup/complete") {
       requireAllowedOrigin(request, response);
       await signupController.handleComplete(request, response);

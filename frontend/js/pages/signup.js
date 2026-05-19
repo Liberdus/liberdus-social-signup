@@ -53,6 +53,7 @@ const runtime = {
   walletProof: null,
   existingSignup: null,
   conflictMessage: "",
+  socialAccountIssues: {},
   manualClaims: {},
   coinMarketCapOpened: false
 };
@@ -241,10 +242,10 @@ function isSavedProviderReady(providerId, account) {
 
 function hasRequiredSocialSession() {
   return Boolean(
-    runtime.xSession?.profile?.id
-    || runtime.telegramSession?.profile?.id
-    || runtime.discordSession?.profile?.id
-    || runtime.linkedinSession?.profile?.id
+    (runtime.xSession?.profile?.id && !hasSocialAccountConflict("x"))
+    || (runtime.telegramSession?.profile?.id && !hasSocialAccountConflict("telegram"))
+    || (runtime.discordSession?.profile?.id && !hasSocialAccountConflict("discord"))
+    || (runtime.linkedinSession?.profile?.id && !hasSocialAccountConflict("linkedin"))
     || [...REQUIRED_SOCIAL_PROVIDER_IDS].some(hasSavedSocialProvider)
   );
 }
@@ -264,9 +265,35 @@ function hasPendingWalletReplacement() {
 
 function setConflict(message) {
   runtime.conflictMessage = message;
-  if (message) {
-    showMessage(message, "error");
-  }
+}
+
+function getBlockingSocialIssue() {
+  return Object.values(runtime.socialAccountIssues || {})
+    .find((issue) => issue?.status === "conflict") || null;
+}
+
+function getBlockingConflictMessage() {
+  return runtime.conflictMessage || getBlockingSocialIssue()?.message || "";
+}
+
+function getSocialAccountIssue(providerId) {
+  return runtime.socialAccountIssues?.[providerId] || null;
+}
+
+function hasSocialAccountConflict(providerId) {
+  return getSocialAccountIssue(providerId)?.status === "conflict";
+}
+
+function setSocialAccountIssues(statuses = {}) {
+  runtime.socialAccountIssues = Object.fromEntries(
+    Object.entries(statuses || {}).filter(([, issue]) => (
+      issue?.status === "conflict" || issue?.status === "replacement"
+    ))
+  );
+}
+
+function clearSocialAccountIssues() {
+  runtime.socialAccountIssues = {};
 }
 
 function applyExistingSignup(signup, source) {
@@ -279,6 +306,50 @@ function applyExistingSignup(signup, source) {
 
   runtime.existingSignup = signup;
   runtime.conflictMessage = "";
+}
+
+function applySignupSessionSnapshot(snapshot = {}) {
+  const wallet = snapshot.wallet || null;
+  if (!wallet) {
+    runtime.walletProof = null;
+    runtime.conflictMessage = snapshot.conflictMessage || "";
+    setSocialAccountIssues(snapshot.socialStatuses || {});
+    return;
+  }
+
+  const signedWalletAddress = normalizeAddress(wallet?.address || "");
+  const connectedAddress = normalizeAddress(runtime.account || "");
+  let localConflictMessage = "";
+  if (!connectedAddress || signedWalletAddress !== connectedAddress) {
+    runtime.walletProof = null;
+    runtime.conflictMessage = "";
+    clearSocialAccountIssues();
+    return;
+  }
+
+  if (signedWalletAddress && connectedAddress && signedWalletAddress === connectedAddress) {
+    runtime.walletProof = {
+      walletAddress: signedWalletAddress,
+      chainId: wallet.chainId || runtime.chainId,
+      verifiedAt: wallet.verifiedAt || new Date().toISOString()
+    };
+  }
+
+  if (snapshot.existingSignup?.id) {
+    applyExistingSignup(snapshot.existingSignup, "signed wallet");
+    localConflictMessage = runtime.conflictMessage;
+  } else if (signedWalletAddress && connectedAddress && signedWalletAddress === connectedAddress && !runtime.walletChangeIntent) {
+    runtime.existingSignup = null;
+  }
+
+  runtime.conflictMessage = snapshot.conflictMessage || localConflictMessage || "";
+  setSocialAccountIssues(snapshot.socialStatuses || {});
+}
+
+async function refreshSignupSessionState() {
+  const snapshot = await apiFetch(runtime.config, "/api/signup/session");
+  applySignupSessionSnapshot(snapshot);
+  return snapshot;
 }
 
 function getConfiguredHref(link) {
@@ -712,6 +783,13 @@ function confirmPendingReplacements() {
 }
 
 function getProviderStatusNote(provider, { session, configured }) {
+  const issue = getSocialAccountIssue(provider.id);
+  if (issue?.status === "conflict") {
+    return { message: issue.message, tone: "error" };
+  }
+  if (issue?.status === "replacement") {
+    return { message: issue.message, tone: "warning" };
+  }
   if (provider.start && !configured) {
     return { message: `${provider.title} sign-in is not configured.`, tone: "warning" };
   }
@@ -918,30 +996,34 @@ function syncXUi() {
   const walletReady = hasConnectedWallet();
   const profile = runtime.xSession?.profile || null;
   const savedAccount = getSavedSocialAccount("x");
+  const issue = getSocialAccountIssue("x");
   const signedIn = Boolean(profile?.username);
-  const ready = signedIn || Boolean(savedAccount);
+  const hasIdentity = signedIn || Boolean(savedAccount);
+  const ready = hasIdentity && issue?.status !== "conflict";
   els.xStatusRow.dataset.ready = ready ? "true" : "false";
   syncChecklistPill(els.xStatusRow, ready);
   setStatusNote(
     els.xStatusText,
-    configured ? STATUS_TEXT.x : "X sign-in is not configured.",
-    configured ? "info" : "warning"
+    issue?.status === "conflict" || issue?.status === "replacement"
+      ? issue.message
+      : configured ? STATUS_TEXT.x : "X sign-in is not configured.",
+    issue?.status === "conflict" ? "error" : issue?.status === "replacement" || !configured ? "warning" : "info"
   );
 
   const xTaskNodes = [];
   const xAuthAction = configureTaskAction(els.xAuthButton, {
-    label: ready ? "Change X account" : runtime.isConnectingX ? "Opening..." : "Sign in",
-    icon: ready ? "edit" : "",
+    label: hasIdentity ? "Change X account" : runtime.isConnectingX ? "Opening..." : "Sign in",
+    icon: hasIdentity ? "edit" : "",
     disabled: !walletReady || runtime.isConnectingX || !configured
   });
-  if (ready) {
+  if (hasIdentity) {
     const label = signedIn
       ? `@${profile.username}`
       : getSavedAccountName(savedAccount, "X");
     xTaskNodes.push(createTaskRow({
       label: "Signed in",
       detail: label,
-      state: "done",
+      state: ready ? "done" : "pending",
       actions: [xAuthAction],
       inlineActions: true
     }));
@@ -979,10 +1061,13 @@ function syncOptionalRows() {
     const walletReady = hasConnectedWallet();
     const session = provider.sessionKey ? runtime[provider.sessionKey] : null;
     const savedAccount = getSavedSocialAccount(provider.id);
+    const issue = getSocialAccountIssue(provider.id);
     const configured = provider.isConfigured ? provider.isConfigured(runtime.config) : true;
-    const ready = provider.isReady
-      ? provider.isReady(session, runtime) || isSavedProviderReady(provider.id, savedAccount)
-      : isSavedProviderReady(provider.id, savedAccount);
+    const ready = issue?.status === "conflict"
+      ? false
+      : provider.isReady
+        ? provider.isReady(session, runtime) || isSavedProviderReady(provider.id, savedAccount)
+        : isSavedProviderReady(provider.id, savedAccount);
     const connecting = provider.connectingKey ? Boolean(runtime[provider.connectingKey]) : false;
 
     elements.row.dataset.ready = ready ? "true" : "false";
@@ -1014,18 +1099,18 @@ function getProfileCompletionTasks() {
 
   return [
     { id: "wallet", done: hasConnectedWallet() },
-    { id: "xSignin", done: Boolean(runtime.xSession?.profile?.id || getSavedSocialAccount("x")) },
+    { id: "xSignin", done: Boolean(!hasSocialAccountConflict("x") && (runtime.xSession?.profile?.id || getSavedSocialAccount("x"))) },
     { id: "xFollow", done: hasManualClaim("xFollow") },
-    { id: "discordSignin", done: Boolean(runtime.discordSession?.profile?.id || discordAccount) },
-    { id: "discordJoin", done: Boolean(runtime.discordSession?.membership?.isMember || hasPassedSavedVerification(discordAccount, "discord_guild_member")) },
-    { id: "telegramSignin", done: Boolean(runtime.telegramSession?.profile?.id || telegramAccount) },
-    { id: "telegramJoin", done: Boolean(runtime.telegramSession?.membership?.isMember || hasPassedSavedVerification(telegramAccount, "telegram_group_member")) },
-    { id: "linkedinSignin", done: Boolean(runtime.linkedinSession?.profile?.id || linkedinAccount) },
+    { id: "discordSignin", done: Boolean(!hasSocialAccountConflict("discord") && (runtime.discordSession?.profile?.id || discordAccount)) },
+    { id: "discordJoin", done: Boolean(!hasSocialAccountConflict("discord") && (runtime.discordSession?.membership?.isMember || hasPassedSavedVerification(discordAccount, "discord_guild_member"))) },
+    { id: "telegramSignin", done: Boolean(!hasSocialAccountConflict("telegram") && (runtime.telegramSession?.profile?.id || telegramAccount)) },
+    { id: "telegramJoin", done: Boolean(!hasSocialAccountConflict("telegram") && (runtime.telegramSession?.membership?.isMember || hasPassedSavedVerification(telegramAccount, "telegram_group_member"))) },
+    { id: "linkedinSignin", done: Boolean(!hasSocialAccountConflict("linkedin") && (runtime.linkedinSession?.profile?.id || linkedinAccount)) },
     { id: "linkedinFollow", done: hasManualClaim("linkedinFollow") },
-    { id: "githubSignin", done: Boolean(runtime.githubSession?.profile?.id || githubAccount) },
-    { id: "githubStar", done: Boolean(runtime.githubSession?.star?.starred || hasPassedSavedVerification(githubAccount, "github_repo_starred")) },
-    { id: "youtubeSignin", done: Boolean(runtime.youtubeSession?.profile?.id || youtubeAccount) },
-    { id: "youtubeSubscribe", done: Boolean(runtime.youtubeSession?.subscription?.subscribed || hasPassedSavedVerification(youtubeAccount, "youtube_channel_subscribed")) },
+    { id: "githubSignin", done: Boolean(!hasSocialAccountConflict("github") && (runtime.githubSession?.profile?.id || githubAccount)) },
+    { id: "githubStar", done: Boolean(!hasSocialAccountConflict("github") && (runtime.githubSession?.star?.starred || hasPassedSavedVerification(githubAccount, "github_repo_starred"))) },
+    { id: "youtubeSignin", done: Boolean(!hasSocialAccountConflict("youtube") && (runtime.youtubeSession?.profile?.id || youtubeAccount)) },
+    { id: "youtubeSubscribe", done: Boolean(!hasSocialAccountConflict("youtube") && (runtime.youtubeSession?.subscription?.subscribed || hasPassedSavedVerification(youtubeAccount, "youtube_channel_subscribed"))) },
     { id: "coinMarketCap", done: cmcOpened }
   ];
 }
@@ -1035,11 +1120,12 @@ function syncProfileMeter({ ready, walletReady, walletVerified, requiredSocialRe
   const completeCount = tasks.filter((task) => task.done).length;
   const totalCount = tasks.length || 1;
   const percent = Math.round((completeCount / totalCount) * 100);
+  const blockingConflictMessage = getBlockingConflictMessage();
   els.profileTaskText.textContent = walletReady ? `${completeCount}/${totalCount} tasks complete` : "";
   els.profileBarFill.style.width = walletReady ? `${percent}%` : "0%";
 
-  if (runtime.conflictMessage) {
-    els.profileGateText.textContent = "Resolve the account conflict before updating.";
+  if (blockingConflictMessage) {
+    els.profileGateText.textContent = blockingConflictMessage;
   } else if (ready) {
     els.profileGateText.textContent = "Minimum complete. More tasks may strengthen future reward eligibility.";
   } else if (!walletReady) {
@@ -1055,7 +1141,7 @@ function syncProfileMeter({ ready, walletReady, walletVerified, requiredSocialRe
   setTaskState(els.minimumWallet, walletReady ? "done" : "pending");
   setTaskState(els.minimumWalletSign, walletVerified ? "done" : walletReady ? "ready" : "pending");
   setTaskState(els.minimumSocial, requiredSocialReady ? "done" : "pending");
-  setTaskState(els.minimumSubmit, runtime.conflictMessage ? "error" : savedCurrent ? "done" : ready ? "ready" : "pending");
+  setTaskState(els.minimumSubmit, blockingConflictMessage ? "error" : savedCurrent ? "done" : ready ? "ready" : "pending");
 }
 
 function syncChecklistLockUi() {
@@ -1068,7 +1154,7 @@ function syncSubmitUi() {
   const walletReady = hasConnectedWallet();
   const walletVerified = Boolean(runtime.walletProof);
   const requiredSocialReady = hasRequiredSocialSession();
-  const ready = walletVerified && requiredSocialReady && !runtime.conflictMessage;
+  const ready = walletVerified && requiredSocialReady && !getBlockingConflictMessage();
   const savedCurrent = Boolean(runtime.existingSignup?.id && !hasUnsavedSignupChanges());
   els.submitButton.disabled = !ready || runtime.isSubmitting;
   els.submitButton.textContent = runtime.isSubmitting ? "Signing..." : runtime.existingSignup ? "Update & Sign" : "Submit & Sign";
@@ -1140,6 +1226,7 @@ async function loadExistingSignupForWallet() {
       runtime.existingSignup = null;
       showMessage("No saved signup exists for this wallet yet.");
     }
+    await refreshSignupSessionState();
   } finally {
     runtime.isVerifyingWallet = false;
     runtime.isLoadingSignup = false;
@@ -1160,6 +1247,7 @@ async function connectSelectedWallet() {
     if (!selectedWalletId) return;
     await connectWallet(runtime, selectedWalletId);
     runtime.walletProof = null;
+    clearSocialAccountIssues();
     showMessage(runtime.walletChangeIntent && runtime.existingSignup?.id
       ? "Replacement wallet connected. Sign wallet to continue."
       : "Wallet connected.",
@@ -1215,7 +1303,15 @@ async function submitSignup() {
     showMessage(result.updated ? "Signup updated." : `Signup received for ${savedName}.`, "success");
   } catch (error) {
     if (error?.payload?.replacementRequired) {
-      throw new Error("This update would replace a saved account. Load the saved signup first so you can review and confirm the change.");
+      setConflict("This update would replace a saved account. Load the saved signup first so you can review and confirm the change.");
+      return;
+    }
+    if (error?.status === 409) {
+      await refreshSignupSessionState().catch(() => null);
+      if (!getBlockingConflictMessage()) {
+        setConflict(error.message || "Resolve the account conflict before updating.");
+      }
+      return;
     }
     throw error;
   } finally {
@@ -1284,6 +1380,7 @@ function bindEvents() {
       runtime.walletProof = null;
       runtime.existingSignup = null;
       runtime.conflictMessage = "";
+      clearSocialAccountIssues();
       runtime.walletChangeIntent = false;
       syncUi();
       showMessage("Wallet disconnected.");
@@ -1302,6 +1399,7 @@ function bindEvents() {
       await disconnectWallet(runtime);
       runtime.walletProof = null;
       runtime.conflictMessage = "";
+      clearSocialAccountIssues();
       setWalletMenuOpen(false);
       syncUi();
       showMessage("Connect the replacement wallet, then sign it.");
@@ -1362,6 +1460,9 @@ function bindEvents() {
     try {
       await logoutXSession(runtime.config, runtime.xSession);
       runtime.xSession = null;
+      await refreshSignupSessionState().catch(() => {
+        clearSocialAccountIssues();
+      });
       syncUi();
       showMessage("X account disconnected.");
     } catch (error) {
@@ -1436,6 +1537,7 @@ function bindEvents() {
       if (previousProofAddress !== nextAccount) {
         runtime.walletProof = null;
         runtime.conflictMessage = "";
+        clearSocialAccountIssues();
       }
       if (previousAccount && nextAccount && previousAccount !== nextAccount) {
         if (hadLoadedSignup) runtime.walletChangeIntent = true;
@@ -1504,6 +1606,11 @@ async function init() {
   }
 
   await syncWalletState(runtime).catch(() => null);
+  await refreshSignupSessionState().catch((error) => {
+    if (![401, 403].includes(error?.status)) {
+      console.warn("[Signup session]", error);
+    }
+  });
   syncUi();
 }
 

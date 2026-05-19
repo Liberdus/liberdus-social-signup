@@ -7,6 +7,7 @@ const {
   getProviderLabel,
   hasRequiredSocialAccount,
   signupHasRequiredSocial,
+  findSocialAccountOwner,
   findSocialConflict,
   mergeSocialAccounts,
   mergeVerification
@@ -99,6 +100,16 @@ function createSignupController(context) {
     if (!existing) {
       throw new HttpError(403, "Signup session expired. Reload the page and try again.");
     }
+    existing.expiresAtMs = Date.now() + SIGNUP_BROWSER_SESSION_TTL_MS;
+    existing.updatedAt = new Date().toISOString();
+    return existing;
+  }
+
+  function findBrowserSession(request) {
+    pruneExpired();
+    const sessionId = parseCookies(request)[SIGNUP_BROWSER_COOKIE_NAME];
+    const existing = sessionId ? browserSessions.get(sessionId) : null;
+    if (!existing) return null;
     existing.expiresAtMs = Date.now() + SIGNUP_BROWSER_SESSION_TTL_MS;
     existing.updatedAt = new Date().toISOString();
     return existing;
@@ -229,6 +240,55 @@ function createSignupController(context) {
     });
   }
 
+  async function handleSessionLookup(request, response) {
+    const browserSession = findBrowserSession(request);
+    const walletProof = browserSession?.walletProof || null;
+    if (!browserSession || !walletProof) {
+      writeJson(response, 200, {
+        wallet: null,
+        existingSignup: null,
+        socialStatuses: {}
+      });
+      return;
+    }
+
+    // Do not accept arbitrary provider IDs here. Conflict status is derived
+    // only from the signed wallet session and the provider cookies this
+    // browser actually authenticated.
+    const { matches, targetSignup } = getTargetSignupForWalletProof(browserSession, walletProof);
+    const targetSignupSerialized = targetSignup ? signupStore.serializeSignup(targetSignup) : null;
+    if (targetSignup?.id) {
+      browserSession.authenticatedSignupId = targetSignup.id;
+      browserSession.authenticatedWalletAddress ||= targetSignup.wallet_address || targetSignup.walletAddress || walletProof.walletAddress;
+    }
+
+    const socialSessions = socialProviders.getSessionsFromCookies(request);
+    try {
+      await socialProviders.refreshSessions(socialSessions);
+    } catch {
+      // Keep the form usable if a reward check cannot refresh during passive session lookup.
+    }
+
+    const currentSocialAccounts = buildSignupSocialAccounts({
+      socialSessions,
+      now: new Date().toISOString()
+    });
+    const conflictMessage = matches.length > 1
+      ? "These accounts are already linked to different signups."
+      : "";
+
+    writeJson(response, 200, {
+      wallet: serializeWalletProof(walletProof),
+      existingSignup: targetSignupSerialized,
+      socialStatuses: buildSocialAccountStatuses(
+        currentSocialAccounts,
+        targetSignupSerialized,
+        targetSignup?.id || ""
+      ),
+      conflictMessage
+    });
+  }
+
   function normalizeManualClaims(value = {}) {
     if (!value || typeof value !== "object") return {};
     return Object.fromEntries(Object.keys(MANUAL_FOLLOW_CLAIMS).map((key) => [
@@ -314,6 +374,69 @@ function createSignupController(context) {
   function getSocialAccountByProvider(signup, provider) {
     return (signup?.socialAccounts || [])
       .find((account) => account?.provider === provider && account.providerUserId) || null;
+  }
+
+  function serializeWalletProof(walletProof) {
+    if (!walletProof?.walletAddress) return null;
+    return {
+      address: walletProof.walletAddress,
+      chainId: walletProof.walletChainId,
+      verifiedAt: walletProof.verifiedAt
+    };
+  }
+
+  function getTargetSignupForWalletProof(browserSession, walletProof) {
+    if (!walletProof?.walletAddress) {
+      return { matches: [], targetSignup: null };
+    }
+
+    const authenticatedSignup = browserSession.authenticatedSignupId
+      ? signupStore.findById(browserSession.authenticatedSignupId)
+      : null;
+    const existingByWallet = signupStore.findByWalletAddress(walletProof.walletAddress);
+    const matches = getDistinctExistingSignups([authenticatedSignup, existingByWallet]);
+    return {
+      matches,
+      targetSignup: matches.length === 1 ? matches[0] : null
+    };
+  }
+
+  function buildSocialAccountStatuses(currentSocialAccounts, targetSignupSerialized, targetSignupId = "") {
+    const statuses = {};
+    for (const account of currentSocialAccounts) {
+      const providerLabel = getProviderLabel(account.provider);
+      const accountSummary = {
+        provider: account.provider,
+        providerUserId: account.providerUserId,
+        label: getAccountLabel(account)
+      };
+      const owner = findSocialAccountOwner(signupStore, account);
+      if (owner?.id && owner.id !== targetSignupId) {
+        statuses[account.provider] = {
+          status: "conflict",
+          account: accountSummary,
+          message: `This ${providerLabel} account is already linked to another signup.`
+        };
+        continue;
+      }
+
+      const replacement = getPendingSocialReplacements(targetSignupSerialized, [account])[0] || null;
+      if (replacement) {
+        statuses[account.provider] = {
+          status: "replacement",
+          account: accountSummary,
+          replacement,
+          message: `This will replace saved ${providerLabel} ${replacement.oldLabel} with ${replacement.newLabel} when you submit.`
+        };
+        continue;
+      }
+
+      statuses[account.provider] = {
+        status: "ok",
+        account: accountSummary
+      };
+    }
+    return statuses;
   }
 
   function getPendingSocialReplacements(targetSignupSerialized, currentSocialAccounts) {
@@ -561,6 +684,7 @@ function createSignupController(context) {
     pruneExpired,
     handleChallenge,
     handleWalletVerify,
+    handleSessionLookup,
     handleComplete
   };
 }
