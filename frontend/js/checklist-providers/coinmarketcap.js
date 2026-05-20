@@ -2,6 +2,12 @@ export const coinMarketCapProvider = {
   id: "coinMarketCap",
   title: "CoinMarketCap",
   trackKey: "coinMarketCapOpened",
+  footerLink: {
+    label: "CoinMarketCap",
+    hrefKey: "coinMarketCap",
+    fallbackHrefKey: "cmc",
+    defaultHref: "https://coinmarketcap.com/community/profile/Liberdus/"
+  },
   links: [
     {
       label: "Follow",

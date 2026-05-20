@@ -326,7 +326,6 @@ h3 { margin-bottom: 8px; font-size: 1.05rem; }
   width: 21px;
   height: 21px;
   object-fit: contain;
-  filter: invert(1);
 }
 
 .provider-mark-wallet { color: #111930; background: var(--accent-strong); }
@@ -334,7 +333,6 @@ h3 { margin-bottom: 8px; font-size: 1.05rem; }
 .provider-mark-discord { background: #5865F2; border-color: rgba(255, 255, 255, 0.18); }
 .provider-mark-telegram { background: #26A5E4; border-color: rgba(255, 255, 255, 0.18); }
 .provider-mark-linkedin { background: #2867B2; border-color: rgba(255, 255, 255, 0.18); text-transform: none; }
-.provider-mark-linkedin img { filter: none; }
 .provider-mark-github { background: #181717; border-color: rgba(255, 255, 255, 0.18); font-size: 0.78rem; }
 .provider-mark-youtube { background: #FF0033; border-color: rgba(255, 255, 255, 0.18); font-size: 0.78rem; }
 .provider-mark-coinMarketCap { background: #3861FB; border-color: rgba(255, 255, 255, 0.18); font-size: 0.66rem; }
@@ -1051,8 +1049,35 @@ button:disabled {
 
 .page-footer-inner { padding: 18px 0 22px; flex-wrap: wrap; }
 .page-footer-copy { margin: 0; color: var(--muted); font-family: var(--mono); font-size: 0.84rem; text-decoration: none; }
-.page-footer-links { display: flex; gap: 14px; flex-wrap: wrap; }
-.footer-link-anchor { color: var(--accent-strong); font-family: var(--mono); font-size: 0.84rem; }
+.page-footer-copy:hover,
+.page-footer-copy:focus-visible { color: var(--text); }
+.page-footer-links { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.footer-link-anchor { color: var(--accent-strong); font-family: var(--mono); font-size: 0.84rem; text-decoration: none; }
+.footer-social-link {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  color: var(--text);
+  background: transparent;
+  border-color: transparent;
+  border-radius: 8px;
+  box-shadow: none;
+  opacity: 0.72;
+  transition: opacity 160ms ease, background 160ms ease;
+}
+
+.footer-social-link img {
+  width: 18px;
+  height: 18px;
+}
+
+.footer-social-link:hover,
+.footer-social-link:focus-visible {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.page-footer-admin-link { margin-left: 4px; }
 
 .management-filter-form {
   display: grid;

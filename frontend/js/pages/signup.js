@@ -600,11 +600,20 @@ function renderFooterLinks() {
   for (const provider of checklistProviders) {
     if (!provider.footerLink) continue;
     const anchor = document.createElement("a");
-    anchor.className = "footer-link-anchor";
+    anchor.className = `footer-link-anchor footer-social-link provider-mark provider-mark-${provider.id}`;
     anchor.href = getConfiguredHref(provider.footerLink);
     anchor.target = "_blank";
     anchor.rel = "noreferrer noopener";
-    anchor.textContent = provider.footerLink.label;
+    anchor.setAttribute("aria-label", provider.footerLink.label);
+    anchor.title = provider.footerLink.label;
+    if (PROVIDER_MARK_ICONS[provider.id]) {
+      const icon = document.createElement("img");
+      icon.src = PROVIDER_MARK_ICONS[provider.id];
+      icon.alt = "";
+      anchor.append(icon);
+    } else {
+      anchor.textContent = provider.footerLink.label;
+    }
     anchor.dataset.providerId = provider.id;
     anchor.dataset.hrefKey = provider.footerLink.hrefKey || "";
     anchor.dataset.fallbackHrefKey = provider.footerLink.fallbackHrefKey || "";
