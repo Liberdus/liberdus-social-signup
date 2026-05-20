@@ -421,8 +421,13 @@ function setTaskControlLabel(button, label) {
 
 function configureTaskAction(action, { label, hidden = false, disabled = false, icon = "" } = {}) {
   if (!action) return null;
+  const isLink = action.tagName === "A";
   action.hidden = hidden;
-  action.disabled = disabled;
+  if (isLink) {
+    setActionLinkDisabled(action, disabled);
+  } else {
+    action.disabled = disabled;
+  }
   action.dataset.icon = icon;
   action.classList.toggle("task-icon-button", Boolean(icon));
   action.textContent = icon ? "" : label;
@@ -434,6 +439,25 @@ function configureTaskAction(action, { label, hidden = false, disabled = false, 
     action.removeAttribute("title");
   }
   return action;
+}
+
+function getTaskLinkLabel(anchor, fallback = "Open") {
+  if (!anchor) return fallback;
+  const saved = String(anchor.dataset.label || "").trim();
+  if (saved) return saved;
+  const label = String(anchor.textContent || "").trim() || fallback;
+  anchor.dataset.label = label;
+  return label;
+}
+
+function configureTaskLinkAction(anchor, { label, done = false, disabled = false, providerTitle = "" } = {}) {
+  const taskLabel = label || getTaskLinkLabel(anchor);
+  const openLabel = providerTitle ? `Open ${providerTitle} ${taskLabel}` : `Open ${taskLabel}`;
+  return configureTaskAction(anchor, {
+    label: done ? openLabel : taskLabel,
+    icon: done ? "external" : "",
+    disabled
+  });
 }
 
 function createTaskRow({ label, detail = "", state = "pending", actions = [], actionOnly = false, inlineActions = false }) {
@@ -497,6 +521,7 @@ function createProviderLink(provider, link) {
   anchor.dataset.hrefKey = link.hrefKey || "";
   anchor.dataset.fallbackHrefKey = link.fallbackHrefKey || "";
   anchor.dataset.manualClaimKey = link.manualClaimKey || "";
+  anchor.dataset.label = link.label;
   setActionLinkDisabled(anchor, true);
   anchor.addEventListener("click", (event) => {
     if (anchor.getAttribute("aria-disabled") === "true") {
@@ -925,14 +950,21 @@ function syncProviderTaskControls(provider, elements, { session, savedAccount, c
 
   for (const link of elements.links || []) {
     const linkState = states.linkDone ? "done" : link.dataset.tracksClick === "true" ? "pending" : "manual";
+    const linkLabel = getTaskLinkLabel(link);
     link.dataset.state = linkState;
     link.classList.toggle("is-complete", linkState === "done");
-    const linkAction = link;
+    const linkAction = configureTaskLinkAction(link, {
+      label: linkLabel,
+      done: states.linkDone,
+      disabled: !hasConnectedWallet(),
+      providerTitle: provider.title
+    });
     nodes.push(createTaskRow({
-      label: states.linkDone ? `${link.textContent} complete` : link.textContent,
+      label: states.linkDone ? `${linkLabel} complete` : linkLabel,
       state: linkState,
-      actions: states.linkDone ? [] : [linkAction],
-      actionOnly: !states.linkDone
+      actions: [linkAction],
+      actionOnly: !states.linkDone,
+      inlineActions: states.linkDone
     }));
   }
 
@@ -1089,11 +1121,18 @@ function syncXUi() {
   const xFollowDone = hasManualClaim("xFollow");
   els.xChecklistLink.dataset.state = xFollowDone ? "done" : "pending";
   els.xChecklistLink.classList.toggle("is-complete", xFollowDone);
+  const xFollowAction = configureTaskLinkAction(els.xChecklistLink, {
+    label: "Follow",
+    done: xFollowDone,
+    disabled: !walletReady,
+    providerTitle: "X"
+  });
   xTaskNodes.push(createTaskRow({
-    label: xFollowDone ? "Follow complete" : "Follow Liberdus",
+    label: xFollowDone ? "Follow complete" : "Follow",
     state: xFollowDone ? "done" : "pending",
-    actions: xFollowDone ? [] : [els.xChecklistLink],
-    actionOnly: !xFollowDone
+    actions: [xFollowAction],
+    actionOnly: !xFollowDone,
+    inlineActions: xFollowDone
   }));
   els.xTaskList.replaceChildren(...xTaskNodes);
 
