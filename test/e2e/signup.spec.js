@@ -65,16 +65,17 @@ async function installFakeWallet(page, walletOrWallets) {
 }
 
 async function connectWallet(page) {
-  if (await page.locator("#walletConnectTaskRow").getAttribute("data-state") === "done") return;
-  await page.getByRole("button", { name: "Connect Wallet" }).click();
+  const connectButton = page.getByRole("button", { name: "Connect & Sign Wallet" });
+  if (await connectButton.count() === 0) return;
+  await connectButton.click();
   await page.getByRole("button", { name: /MetaMask/u }).click();
-  await expect(page.locator("#walletConnectTaskRow")).toHaveAttribute("data-state", "done");
+  await expect(page.locator("#walletStatusRow")).toHaveAttribute("data-ready", "true");
 }
 
 async function signWallet(page) {
-  if (await page.locator("#walletSignTaskRow").getAttribute("data-state") === "done") return;
-  await page.locator("#loadSignupButton").click();
-  await expect(page.locator("#walletSignTaskRow")).toHaveAttribute("data-state", "done");
+  if (await page.locator("#walletStatusRow").getAttribute("data-ready") === "true") return;
+  await page.getByRole("button", { name: /Sign Wallet/i }).click();
+  await expect(page.locator("#walletStatusRow")).toHaveAttribute("data-ready", "true");
 }
 
 async function createDiscordSession(page, overrides = {}) {
@@ -148,16 +149,10 @@ test("social actions stay hidden until wallet ownership is signed", async ({ pag
 
   await connectWallet(page);
 
-  await expect(page.locator("#walletConnectTaskRow")).toHaveAttribute("data-state", "done");
-  await expect(page.locator("#xStatusRow")).toBeHidden();
-  await expect(page.locator("#discordStatusRow")).toBeHidden();
-  await expect(page.locator("#submitButton")).toBeDisabled();
-
-  await page.locator("#loadSignupButton").click();
-
+  await expect(page.locator("#walletStatusRow")).toHaveAttribute("data-ready", "true");
   await expect(page.locator("#xStatusRow")).toBeVisible();
   await expect(page.locator("#discordStatusRow")).toBeVisible();
-  await expect(page.locator("#profileTaskText")).toContainText("tasks complete");
+  await expect(page.locator("#profileTaskText")).toContainText("profile tasks complete");
   await expect(page.locator("#discordAuthButton")).toBeEnabled();
   await expect(page.locator("#submitButton")).toBeDisabled();
 });
@@ -172,7 +167,7 @@ test("restores signed wallet state after a reload", async ({ page }) => {
 
   await page.reload();
 
-  await expect(page.locator("#walletSignTaskRow")).toHaveAttribute("data-state", "done");
+  await expect(page.locator("#walletStatusRow")).toHaveAttribute("data-ready", "true");
   await expect(page.locator("#xStatusRow")).toBeVisible();
   await expect(page.locator("#discordStatusRow")).toBeVisible();
 });
@@ -187,7 +182,7 @@ test("keeps signed wallet state after provider auth redirect completion", async 
 
   await page.goto("./?discord_auth=complete");
 
-  await expect(page.locator("#walletSignTaskRow")).toHaveAttribute("data-state", "done");
+  await expect(page.locator("#walletStatusRow")).toHaveAttribute("data-ready", "true");
   await expect(page.locator("#discordStatusRow")).toBeVisible();
   await expect(page.locator("#discordStatusRow")).toContainText("redirectdiscord");
 });
@@ -203,8 +198,7 @@ test("locks checklist when signup session expires during provider return", async
 
   await page.goto("./?discord_auth=complete");
 
-  await expect(page.locator("#walletConnectTaskRow")).toHaveAttribute("data-state", "done");
-  await expect(page.locator("#walletSignTaskRow")).toHaveAttribute("data-state", "pending");
+  await expect(page.locator("#walletStatusRow")).toHaveAttribute("data-ready", "false");
   await expect(page.locator("#discordStatusRow")).toBeHidden();
   await expect(page.locator("#submitButton")).toBeDisabled();
 });
@@ -301,7 +295,7 @@ test("clears signed wallet state when the connected wallet changes with unsaved 
     window.__e2eWallet.setAccount(nextAddress);
   }, secondWallet.address);
 
-  await expect(page.locator("#walletSignTaskRow")).toHaveAttribute("data-state", "pending");
+  await expect(page.locator("#walletStatusRow")).toHaveAttribute("data-ready", "false");
   await expect(page.locator("#discordStatusRow")).toBeHidden();
   await expect(page.locator("#submitButton")).toBeDisabled();
 });
@@ -324,10 +318,9 @@ test("loads saved socials by signed wallet", async ({ page }) => {
   await expect(page.locator("#discordStatusRow")).toHaveAttribute("data-ready", "true");
   await expect(page.locator("#discordAuthButton")).toHaveAttribute("aria-label", "Change Discord account");
   await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
-  await expect(page.locator("#submitButton")).toBeEnabled();
-
-  await page.locator("#submitButton").click();
-  await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
+  await expect(page.locator("#submitButton")).toBeDisabled();
+  await expect(page.locator("#profileGateText")).toContainText("Profile saved.");
+  await expect(page.locator("#profileSaveNote")).toBeHidden();
 });
 
 test("confirms replacing a saved social account", async ({ page }) => {
@@ -346,6 +339,7 @@ test("confirms replacing a saved social account", async ({ page }) => {
   await connectWallet(page);
   await signWallet(page);
   await expect(page.locator("#discordStatusText")).toContainText("will replace saved Discord olddiscord with newdiscord");
+  await expect(page.locator("#profileSaveNote")).toContainText("Changes are not saved until you submit and sign.");
 
   const unconfirmed = await page.evaluate(async ({ url, walletAddress }) => {
     const challengeResponse = await fetch(`${url}/api/signup/challenge`, {
@@ -438,14 +432,14 @@ test("confirms replacing a saved wallet", async ({ page }) => {
   await page.locator("#connectButton").click();
   await expect(page.locator("#changeWalletButton")).toBeVisible();
   await page.locator("#changeWalletButton").click();
-  await expect(page.locator("#walletConnectTaskRow")).toHaveAttribute("data-state", "pending");
+  await expect(page.locator("#walletStatusRow")).toHaveAttribute("data-ready", "false");
   await expect(page.locator("#discordStatusRow")).toBeHidden();
   await page.evaluate((nextAddress) => {
     window.__e2eWallet.setAccount(nextAddress);
   }, newWallet.address);
   await connectWallet(page);
   await expect(page.locator("#walletStatusText")).toContainText("will replace saved wallet");
-  await expect(page.locator("#discordStatusRow")).toBeHidden();
+  await expect(page.locator("#discordStatusRow")).toBeVisible();
   await signWallet(page);
   await expect(page.locator("#discordStatusRow")).toBeVisible();
 
@@ -483,6 +477,6 @@ test("confirms replacing a saved wallet", async ({ page }) => {
   });
   await page.locator("#submitButton").click();
 
-  await expect(page.locator("#walletSignTaskRow")).toHaveAttribute("data-state", "done");
+  await expect(page.locator("#walletStatusRow")).toHaveAttribute("data-ready", "true");
   await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
 });

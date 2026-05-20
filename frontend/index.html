@@ -62,7 +62,7 @@
             </div>
             <div class="profile-action-row">
               <p id="profileGateText">Connect a wallet to start your reward profile.</p>
-              <p class="save-note">Nothing is saved until you submit and sign.</p>
+              <p id="profileSaveNote" class="save-note">Nothing is saved until you submit and sign.</p>
               <div class="minimum-action-row">
                 <div class="minimum-status" aria-label="Minimum to submit">
                   <span class="minimum-label">Minimum to submit</span>
@@ -86,31 +86,9 @@
                 <span class="required-pill">Required</span>
               </div>
               <p id="walletStatusText" class="status-note" hidden></p>
-              <div class="task-list wallet-menu-shell" aria-label="Wallet tasks">
-                <div class="task-row task-row-action-only task-row-inline-actions" id="walletConnectTaskRow" data-state="pending">
-                  <span class="task-check" aria-hidden="true"></span>
-                  <span class="task-row-copy">
-                    <span class="task-row-title-line">
-                      <span id="walletConnectTaskTitle" class="task-row-title">Connected wallet</span>
-                      <span class="task-row-actions task-row-inline-action-group">
-                        <button id="connectButton" type="button" class="task-control wallet-trigger" aria-haspopup="menu" aria-expanded="false">Connect Wallet</button>
-                      </span>
-                    </span>
-                    <span id="walletConnectTaskDetail" class="task-row-detail"></span>
-                  </span>
-                </div>
-                <div class="task-row task-row-action-only task-row-inline-actions" id="walletSignTaskRow" data-state="pending">
-                  <span class="task-check" aria-hidden="true"></span>
-                  <span class="task-row-copy">
-                    <span class="task-row-title-line">
-                      <span id="walletSignTaskTitle" class="task-row-title">Signed wallet</span>
-                      <span class="task-row-actions task-row-inline-action-group">
-                        <button id="loadSignupButton" type="button" class="task-control task-secondary wallet-load-button" disabled>Sign wallet</button>
-                      </span>
-                    </span>
-                    <span id="walletSignTaskDetail" class="task-row-detail">Saved signup loaded.</span>
-                  </span>
-                </div>
+              <div class="wallet-control-shell wallet-menu-shell" aria-label="Wallet control">
+                <button id="connectButton" type="button" class="task-control wallet-trigger wallet-primary-action" aria-haspopup="menu" aria-expanded="false">Connect &amp; Sign Wallet</button>
+                <button id="walletSignButton" type="button" class="task-control wallet-sign-action wallet-primary-action" hidden disabled>Sign Wallet</button>
                 <div id="walletMenu" class="wallet-popout" role="menu" hidden>
                   <p class="wallet-popout-label">Connected wallet</p>
                   <div class="wallet-popout-row">

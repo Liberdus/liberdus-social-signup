@@ -793,20 +793,24 @@ h3 { margin-bottom: 8px; font-size: 1.05rem; }
   flex: 0 0 auto;
 }
 
-.wallet-load-button:not([hidden]) {
+.wallet-primary-action:not(.task-icon-button) {
   min-width: min(100%, 250px);
   min-height: 48px;
   padding: 0 18px;
   border: 0;
   border-radius: 14px;
   color: #111930;
+  font-family: var(--body);
+  font-size: 1rem;
   font-weight: 800;
   letter-spacing: 0.02em;
+  line-height: normal;
+  white-space: nowrap;
   background: linear-gradient(135deg, #ffc86d 0%, var(--accent) 46%, #e48e17 100%);
   box-shadow: 0 14px 34px rgba(251, 175, 64, 0.24);
 }
 
-.wallet-load-button:not([hidden]):hover:not(:disabled) {
+.wallet-primary-action:not(.task-icon-button):hover:not(:disabled) {
   color: #111930;
   background: linear-gradient(135deg, #ffd487 0%, #ffb94d 46%, #ec981f 100%);
   box-shadow: 0 16px 38px rgba(251, 175, 64, 0.28);
@@ -896,8 +900,49 @@ button:disabled {
   box-shadow: none;
 }
 
-.wallet-menu-shell { position: relative; }
-.wallet-trigger:not(.task-icon-button) { min-width: 136px; }
+.wallet-control-shell {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 380px);
+  padding-top: 8px;
+  border-top: 1px solid rgba(177, 191, 237, 0.14);
+}
+
+.wallet-trigger:not(.task-icon-button):not(.wallet-primary-action) { min-width: 136px; }
+
+.wallet-primary-action {
+  flex: 0 1 auto;
+  width: min(100%, 250px);
+}
+
+.wallet-primary-action[data-state="connected"],
+.wallet-primary-action[data-state="done"] {
+  min-width: 142px;
+  width: auto;
+  max-width: 180px;
+  color: #fff0d3;
+  border: 1px solid rgba(251, 175, 64, 0.24);
+  background: rgba(251, 175, 64, 0.1);
+  box-shadow: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wallet-primary-action[data-state="connected"]:hover:not(:disabled),
+.wallet-primary-action[data-state="done"]:hover:not(:disabled) {
+  color: #fff6e7;
+  border-color: rgba(251, 175, 64, 0.42);
+  background: rgba(251, 175, 64, 0.16);
+  box-shadow: none;
+}
+
+.wallet-sign-action:not([hidden]) {
+  width: min(100%, 140px);
+  min-width: 124px;
+}
 
 .wallet-popout {
   position: absolute;
