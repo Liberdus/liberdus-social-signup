@@ -157,6 +157,24 @@ test("social actions stay hidden until wallet ownership is signed", async ({ pag
   await expect(page.locator("#submitButton")).toBeDisabled();
 });
 
+test("header wallet connect keeps page locked until page-level signature", async ({ page }) => {
+  await installFakeWallet(page, createTestWallet());
+  await page.goto("./");
+
+  await page.locator("#connectButton").click();
+  await page.getByRole("button", { name: /MetaMask/u }).click();
+
+  await expect(page.locator("#walletStatusRow")).toHaveAttribute("data-ready", "false");
+  await expect(page.locator("#requiredSocialChecklist")).toBeHidden();
+  await expect(page.locator("#walletGatePanel")).toBeVisible();
+  await expect(page.locator("#walletGateTitle")).toContainText("Sign wallet to unlock");
+  await expect(page.locator("#walletSignButton")).toBeVisible();
+
+  await page.locator("#walletSignButton").click();
+  await expect(page.locator("#walletStatusRow")).toHaveAttribute("data-ready", "true");
+  await expect(page.locator("#requiredSocialChecklist")).toBeVisible();
+});
+
 test("restores signed wallet state after a reload", async ({ page }) => {
   await installFakeWallet(page, createTestWallet());
   await page.goto("./");

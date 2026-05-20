@@ -69,6 +69,10 @@ const els = {
   walletMenu: document.getElementById("walletMenu"),
   walletMenuAddress: document.getElementById("walletMenuAddress"),
   walletMenuChainId: document.getElementById("walletMenuChainId"),
+  walletGatePanel: document.getElementById("walletGatePanel"),
+  walletGateTitle: document.getElementById("walletGateTitle"),
+  walletGateText: document.getElementById("walletGateText"),
+  walletGateConnectButton: document.getElementById("walletGateConnectButton"),
   walletSignButton: document.getElementById("walletSignButton"),
   copyWalletAddressButton: document.getElementById("copyWalletAddressButton"),
   changeWalletButton: document.getElementById("changeWalletButton"),
@@ -80,6 +84,7 @@ const els = {
   xAuthButton: document.getElementById("xAuthButton"),
   xDisconnectButton: document.getElementById("xDisconnectButton"),
   xTaskList: document.querySelector('[aria-label="X tasks"]'),
+  requiredSocialChecklist: document.getElementById("requiredSocialChecklist"),
   optionalChecklist: document.getElementById("optionalChecklist"),
   xChecklistLink: document.getElementById("xChecklistLink"),
   submitButton: document.getElementById("submitButton"),
@@ -87,7 +92,6 @@ const els = {
   profileBarFill: document.getElementById("profileBarFill"),
   profileGateText: document.getElementById("profileGateText"),
   profileSaveNote: document.getElementById("profileSaveNote"),
-  minimumWallet: document.getElementById("minimumWallet"),
   minimumWalletSign: document.getElementById("minimumWalletSign"),
   minimumSocial: document.getElementById("minimumSocial"),
   minimumSubmit: document.getElementById("minimumSubmit"),
@@ -154,9 +158,18 @@ function showMessage(message, tone = "info") {
   toast.show(message, tone);
 }
 
+function getFriendlyErrorMessage(error) {
+  const message = String(error?.shortMessage || error?.reason || error?.message || error || "");
+  const code = error?.code || error?.error?.code || error?.info?.error?.code;
+  if (code === 4001 || code === "ACTION_REJECTED" || /user rejected|user denied|ethers-user-denied/i.test(message)) {
+    return "Request canceled in wallet.";
+  }
+  return message || "Something went wrong.";
+}
+
 function reportError(error, context) {
   console.error(`[${context}]`, error);
-  showMessage(`${context}: ${error?.message || error}`, "error");
+  showMessage(`${context}: ${getFriendlyErrorMessage(error)}`, "error");
 }
 
 function getVerifiedWalletAddress() {
@@ -375,12 +388,13 @@ function setTaskState(element, state) {
 function setStatusNote(element, message = "", tone = "info") {
   if (!element) return;
   const hasMessage = Boolean(String(message || "").trim());
-  element.hidden = !hasMessage;
+  element.hidden = !hasMessage || tone === "info";
   element.textContent = hasMessage ? message : "";
   element.dataset.tone = tone;
 }
 
 function syncChecklistPill(row, isComplete) {
+  if (row) row.dataset.complete = isComplete ? "true" : "false";
   const pill = row?.querySelector(".required-pill, .choice-pill, .optional-pill");
   if (!pill) return;
   if (!pill.dataset.defaultLabel) {
@@ -506,7 +520,8 @@ function createProviderLink(provider, link) {
 }
 
 function renderProviderRows() {
-  const fragment = document.createDocumentFragment();
+  const requiredFragment = document.createDocumentFragment();
+  const optionalFragment = document.createDocumentFragment();
 
   for (const provider of checklistProviders) {
     const row = document.createElement("article");
@@ -583,10 +598,15 @@ function renderProviderRows() {
       verifyButton
     });
     row.append(mark, copy);
-    fragment.append(row);
+    if (provider.requirementLabel) {
+      requiredFragment.append(row);
+    } else {
+      optionalFragment.append(row);
+    }
   }
 
-  els.optionalChecklist.replaceChildren(fragment);
+  els.requiredSocialChecklist.append(requiredFragment);
+  els.optionalChecklist.replaceChildren(optionalFragment);
 }
 
 function renderFooterLinks() {
@@ -961,11 +981,17 @@ function syncWalletUi() {
   if (runtime.isConnectingWallet) {
     setTaskControlLabel(els.connectButton, "Connecting...");
   } else if (!hasWallet) {
-    setTaskControlLabel(els.connectButton, "Connect & Sign Wallet");
+    setTaskControlLabel(els.connectButton, "Connect Wallet");
   } else {
     setTaskControlLabel(els.connectButton, walletLabel);
   }
 
+  setTaskControlLabel(
+    els.walletGateConnectButton,
+    runtime.isConnectingWallet || runtime.isLoadingSignup || runtime.isVerifyingWallet
+      ? "Connecting..."
+      : "Connect & Sign Wallet"
+  );
   setTaskControlLabel(
     els.walletSignButton,
     runtime.isLoadingSignup || runtime.isVerifyingWallet ? "Signing..." : "Sign Wallet"
@@ -973,8 +999,15 @@ function syncWalletUi() {
 
   els.connectButton.hidden = false;
   els.connectButton.disabled = runtime.isConnectingWallet || runtime.isLoadingSignup || runtime.isVerifyingWallet || runtime.isSubmitting;
+  els.walletGatePanel.hidden = hasWalletProof;
+  els.walletGateConnectButton.hidden = hasWallet;
+  els.walletGateConnectButton.disabled = runtime.isConnectingWallet || runtime.isLoadingSignup || runtime.isVerifyingWallet || runtime.isSubmitting;
   els.walletSignButton.hidden = !hasWallet || hasWalletProof;
   els.walletSignButton.disabled = !hasWallet || runtime.isConnectingWallet || runtime.isLoadingSignup || runtime.isVerifyingWallet || runtime.isSubmitting;
+  els.walletGateTitle.textContent = hasWallet ? "Sign wallet to unlock" : "Unlock the checklist";
+  els.walletGateText.textContent = hasWallet
+    ? `Wallet ${walletLabel} is connected. Sign to prove ownership and unlock the social checklist.`
+    : "Connect and sign with your wallet to unlock the social checklist.";
   if (hasWallet) {
     els.connectButton.setAttribute("aria-haspopup", "menu");
   } else {
@@ -1171,7 +1204,6 @@ function syncProfileMeter({ ready, walletReady, walletVerified, requiredSocialRe
       : "Nothing is saved until you submit and sign.";
   }
 
-  setTaskState(els.minimumWallet, walletReady ? "done" : "pending");
   setTaskState(els.minimumWalletSign, walletVerified ? "done" : walletReady ? "ready" : "pending");
   setTaskState(els.minimumSocial, requiredSocialReady ? "done" : "pending");
   setTaskState(els.minimumSubmit, blockingConflictMessage ? "error" : savedCurrent ? "done" : ready ? "ready" : "pending");
@@ -1179,8 +1211,9 @@ function syncProfileMeter({ ready, walletReady, walletVerified, requiredSocialRe
 
 function syncChecklistLockUi() {
   const walletVerified = Boolean(runtime.walletProof);
-  els.xStatusRow.hidden = !walletVerified;
+  els.requiredSocialChecklist.hidden = !walletVerified;
   els.optionalChecklist.hidden = !walletVerified;
+  els.xStatusRow.hidden = !walletVerified;
 }
 
 function syncSubmitUi() {
@@ -1295,6 +1328,14 @@ async function connectSelectedWallet() {
   }
 }
 
+async function connectAndSignWallet() {
+  if (!runtime.account) {
+    const connected = await connectSelectedWallet();
+    if (!connected || !runtime.account) return;
+  }
+  await loadExistingSignupForWallet();
+}
+
 async function submitSignup() {
   if (!hasConnectedWallet()) {
     throw new Error("Connect a wallet first.");
@@ -1401,16 +1442,17 @@ function bindEvents() {
   els.connectButton.addEventListener("click", async () => {
     try {
       if (!runtime.account) {
-        const connected = await connectSelectedWallet();
-        if (connected && runtime.account) {
-          await loadExistingSignupForWallet();
-        }
+        await connectSelectedWallet();
         return;
       }
       toggleWalletMenu();
     } catch (error) {
       reportError(error, "Wallet");
     }
+  });
+
+  els.walletGateConnectButton.addEventListener("click", () => {
+    connectAndSignWallet().catch((error) => reportError(error, "Wallet"));
   });
 
   els.walletSignButton.addEventListener("click", () => {
