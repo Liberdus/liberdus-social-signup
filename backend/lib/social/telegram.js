@@ -2,10 +2,12 @@ const crypto = require("node:crypto");
 
 const TELEGRAM_BOT_API_BASE_URL = "https://api.telegram.org";
 const TELEGRAM_SESSION_COOKIE_NAME = "liberdus_signup_telegram_session";
+const TELEGRAM_INIT_COOKIE_NAME = "liberdus_signup_telegram_init";
 const TELEGRAM_COMPLETE_QUERY_PARAM = "telegram_auth";
 const TELEGRAM_COMPLETE_QUERY_VALUE = "complete";
 const TELEGRAM_ERROR_QUERY_PARAM = "telegram_error";
 const TELEGRAM_SESSION_TTL_MS = 30 * 60 * 1000;
+const TELEGRAM_STATE_TTL_MS = 10 * 60 * 1000;
 const TELEGRAM_LOGIN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function createTelegramProvider(context) {
@@ -26,6 +28,7 @@ function createTelegramProvider(context) {
   } = context;
 
   const sessions = new Map();
+  const callbackStates = new Map();
 
   function getBotUsername() {
     return String(process.env.TELEGRAM_BOT_USERNAME || "").trim().replace(/^@/u, "");
@@ -152,6 +155,9 @@ function createTelegramProvider(context) {
     for (const [key, session] of sessions.entries()) {
       if (session.expiresAtMs <= now) sessions.delete(key);
     }
+    for (const [key, pending] of callbackStates.entries()) {
+      if (pending.expiresAtMs <= now) callbackStates.delete(key);
+    }
   }
 
   function serializeSession(session) {
@@ -197,17 +203,58 @@ function createTelegramProvider(context) {
     return session;
   }
 
-  async function handleCallback(request, response, requestUrl) {
+  async function handleInit(request, response, requestUrl) {
     const returnUri = validateReturnUri(requestUrl.searchParams.get("return_uri"));
+    const state = createRandomToken(24);
+    const expiresAtMs = Date.now() + TELEGRAM_STATE_TTL_MS;
+    callbackStates.set(state, { returnUri, expiresAtMs });
+    setCookie(response, TELEGRAM_INIT_COOKIE_NAME, state, {
+      path: "/api/telegram/",
+      maxAge: TELEGRAM_STATE_TTL_MS / 1000,
+      httpOnly: true,
+      sameSite: "Lax",
+      secure: shouldUseSecureCookies()
+    });
+
+    const callbackUrl = new URL("/api/telegram/callback", requestUrl.origin);
+    callbackUrl.searchParams.set("state", state);
+    writeJson(response, 200, {
+      state,
+      authUrl: callbackUrl.toString(),
+      expiresAt: expiresAtMs
+    });
+  }
+
+  async function handleCallback(request, response, requestUrl) {
+    const state = String(requestUrl.searchParams.get("state") || "").trim();
+    const pending = state ? callbackStates.get(state) : null;
+    const returnUri = pending?.returnUri || validateReturnUri(requestUrl.searchParams.get("return_uri"));
+    const initCookieState = String(parseCookies(request)[TELEGRAM_INIT_COOKIE_NAME] || "").trim();
+    const hasValidInitCookie = Boolean(state && initCookieState && secureEquals(initCookieState, state));
     const loginPayload = getLoginPayload(requestUrl.searchParams);
+
+    clearCookie(response, TELEGRAM_INIT_COOKIE_NAME, {
+      path: "/api/telegram/",
+      sameSite: "Lax",
+      secure: shouldUseSecureCookies()
+    });
+
+    if (!pending || !hasValidInitCookie) {
+      const url = new URL(returnUri);
+      url.searchParams.set(TELEGRAM_ERROR_QUERY_PARAM, "Telegram sign-in expired. Try again.");
+      redirect(response, url.toString());
+      return;
+    }
 
     try {
       await createSession(response, loginPayload);
+      callbackStates.delete(state);
 
       const url = new URL(returnUri);
       url.searchParams.set(TELEGRAM_COMPLETE_QUERY_PARAM, TELEGRAM_COMPLETE_QUERY_VALUE);
       redirect(response, url.toString());
     } catch (error) {
+      callbackStates.delete(state);
       const url = new URL(returnUri);
       url.searchParams.set(TELEGRAM_ERROR_QUERY_PARAM, getPublicErrorMessage(error, "Telegram sign-in failed."));
       redirect(response, url.toString());
@@ -237,6 +284,11 @@ function createTelegramProvider(context) {
     if (sessionId) sessions.delete(sessionId);
     clearCookie(response, TELEGRAM_SESSION_COOKIE_NAME, {
       path: "/api/",
+      sameSite: "Lax",
+      secure: shouldUseSecureCookies()
+    });
+    clearCookie(response, TELEGRAM_INIT_COOKIE_NAME, {
+      path: "/api/telegram/",
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
@@ -284,6 +336,7 @@ function createTelegramProvider(context) {
   return {
     id: "telegram",
     routes: {
+      "POST /api/telegram/init": { handler: handleInit, requireOrigin: true },
       "GET /api/telegram/callback": { handler: handleCallback },
       "POST /api/telegram/verify": { handler: handleVerify, requireOrigin: true },
       "GET /api/telegram/session": { handler: handleSessionLookup, requireOrigin: true },
