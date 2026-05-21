@@ -1272,8 +1272,6 @@ button:disabled {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.page-footer-admin-link { margin-left: 4px; }
-
 .management-filter-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

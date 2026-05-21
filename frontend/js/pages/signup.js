@@ -659,7 +659,6 @@ function renderProviderRows() {
 }
 
 function renderFooterLinks() {
-  const adminLink = els.footerSocialLinks.querySelector('a[href="./admin/"]');
   const anchors = [];
   for (const provider of checklistProviders) {
     if (!provider.footerLink) continue;
@@ -683,7 +682,7 @@ function renderFooterLinks() {
     anchor.dataset.fallbackHrefKey = provider.footerLink.fallbackHrefKey || "";
     anchors.push(anchor);
   }
-  els.footerSocialLinks.replaceChildren(...[els.xLink, ...anchors, adminLink].filter(Boolean));
+  els.footerSocialLinks.replaceChildren(...[els.xLink, ...anchors].filter(Boolean));
 }
 
 function updateProviderLinks(provider, elements) {
