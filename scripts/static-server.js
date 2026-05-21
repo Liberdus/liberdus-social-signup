@@ -4,7 +4,7 @@ const path = require("node:path");
 
 const host = process.env.STATIC_HOST || "127.0.0.1";
 const port = Number.parseInt(process.env.STATIC_PORT || "5503", 10);
-const root = path.join(__dirname, "..");
+const root = path.join(__dirname, "..", "frontend");
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -56,12 +56,27 @@ function getE2EConfig() {
 }
 
 function getFilePath(urlPath) {
-  const pathname = decodeURIComponent(new URL(urlPath, `http://${host}:${port}`).pathname);
-  const relative = pathname === "/" || pathname.endsWith("/")
-    ? `${pathname.replace(/^\/+/u, "")}index.html`
-    : pathname.replace(/^\/+/u, "");
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(urlPath, `http://${host}:${port}`).pathname);
+  } catch {
+    return null;
+  }
+
+  let publicPath = pathname;
+  if (publicPath === "/frontend") {
+    publicPath = "/";
+  } else if (publicPath.startsWith("/frontend/")) {
+    publicPath = publicPath.slice("/frontend".length);
+  }
+
+  const relative = publicPath === "/" || publicPath.endsWith("/")
+    ? `${publicPath.replace(/^\/+/u, "")}index.html`
+    : publicPath.replace(/^\/+/u, "");
   const resolved = path.resolve(root, relative);
-  if (!resolved.startsWith(root)) return null;
+  const relativeToRoot = path.relative(root, resolved);
+  if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) return null;
+  if (relativeToRoot.split(path.sep).some((segment) => segment.startsWith("."))) return null;
   return resolved;
 }
 
@@ -75,7 +90,7 @@ http.createServer((request, response) => {
 
   fs.readFile(filePath, (error, data) => {
     if (error) {
-      if (error.code === "ENOENT" && filePath === path.join(root, "frontend", "config.local.json")) {
+      if (error.code === "ENOENT" && filePath === path.join(root, "config.local.json")) {
         if (isE2ETestMode()) {
           response.writeHead(200, {
             "Content-Type": "application/json; charset=utf-8",

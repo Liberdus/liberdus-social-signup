@@ -62,7 +62,47 @@ Real X, Discord, Telegram, LinkedIn, GitHub, YouTube, and CoinMarketCap flows st
 
 ## GitHub Pages
 
-The frontend is static and can be hosted from `frontend/`. The backend must be deployed separately because it stores data, handles OAuth secrets, and verifies wallet signatures.
+The frontend is static and can be hosted from `frontend/` or published from a separate GitHub Pages repository. The backend must be deployed separately because it stores data, handles OAuth secrets, and verifies wallet signatures.
+
+## Production Backend With PM2
+
+PM2 is not included in `package.json`. Install it separately on the server, usually as a global process-manager tool:
+
+```bash
+npm install -g pm2
+```
+
+Install production dependencies and create the server environment file:
+
+```bash
+npm ci --omit=dev
+cp .env.example .env
+```
+
+Edit `.env` for the production frontend and backend domains before starting the process:
+
+- Set `SIGNUP_HOST=127.0.0.1` when the backend is behind nginx, Caddy, Apache, or another reverse proxy.
+- Set `SIGNUP_PORT` to the local backend port the proxy forwards to.
+- Set `SIGNUP_ALLOWED_ORIGINS` to the public GitHub Pages frontend origin, for example `https://example.github.io`.
+- Set `SIGNUP_FRONTEND_RETURN_URL` and `SIGNUP_FRONTEND_RETURN_URLS` to the public GitHub Pages frontend URL.
+- Set all OAuth callback URLs to the public backend callback URLs.
+- Set a strong `ADMIN_PASSWORD`.
+- Set `SIGNUP_TRUST_PROXY=true` only when the reverse proxy sanitizes `X-Forwarded-For` and `X-Real-IP`.
+
+Start only the backend API with PM2:
+
+```bash
+pm2 start npm --name liberdus-social-signup-api -- run serve
+pm2 save
+```
+
+To make PM2 restart the backend after a server reboot, run the startup command PM2 prints:
+
+```bash
+pm2 startup
+```
+
+Do not run `npm run serve:static` for production. That script is only a local development and E2E helper. Serve the static frontend from GitHub Pages instead.
 
 ## Temporary Wallet Module
 
