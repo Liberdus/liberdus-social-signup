@@ -154,7 +154,8 @@ function normalizeOffset(value) {
 }
 
 function escapeCsvValue(value) {
-  const text = String(value ?? "");
+  const rawText = String(value ?? "");
+  const text = /^[=+\-@\t\r\n]/u.test(rawText) ? `'${rawText}` : rawText;
   if (!/[",\n\r]/u.test(text)) return text;
   return `"${text.replace(/"/gu, '""')}"`;
 }

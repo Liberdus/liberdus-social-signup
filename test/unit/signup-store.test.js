@@ -16,7 +16,7 @@ const WALLETS = {
   three: "0xcccccccccccccccccccccccccccccccccccccccc"
 };
 
-function withTempStore(t) {
+function withTempDbStore(t) {
   const previousDbPath = process.env.SIGNUP_DB_PATH;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "liberdus-signup-store-"));
   process.env.SIGNUP_DB_PATH = path.join(tempDir, "signup.sqlite");
@@ -34,7 +34,11 @@ function withTempStore(t) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  return store;
+  return { db, store };
+}
+
+function withTempStore(t) {
+  return withTempDbStore(t).store;
 }
 
 function makeSignupInput(overrides = {}) {
@@ -89,6 +93,90 @@ function makeSocialAccount(overrides = {}) {
     }],
     ...overrides
   };
+}
+
+function parseCsvRows(csv) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const character = csv[index];
+
+    if (inQuotes) {
+      if (character === '"' && csv[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else if (character === '"') {
+        inQuotes = false;
+      } else {
+        cell += character;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inQuotes = true;
+    } else if (character === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (character === "\n" || character === "\r") {
+      if (character === "\r" && csv[index + 1] === "\n") index += 1;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+
+  if (cell || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function parseCsvRecords(csv) {
+  const [header, ...rows] = parseCsvRows(csv);
+  return rows.map((row) => Object.fromEntries(header.map((column, index) => [column, row[index] || ""])));
+}
+
+function setStoredSocialProfileFields(db, signupId, provider, fields) {
+  db.prepare(`
+    UPDATE signup_social_accounts
+    SET username = @username, display_name = @displayName
+    WHERE signup_id = @signupId AND provider = @provider
+  `).run({
+    signupId,
+    provider,
+    username: fields.username || "",
+    displayName: fields.displayName || ""
+  });
+}
+
+function exportRowWithStoredGithubUsername(t, username) {
+  const { db, store } = withTempDbStore(t);
+  const saved = store.saveSignup(makeSignupInput({
+    socialAccounts: [
+      makeSocialAccount({
+        provider: "github",
+        providerUserId: "github-1",
+        username: "safe",
+        displayName: "Safe GitHub",
+        verifications: []
+      })
+    ]
+  }));
+  setStoredSocialProfileFields(db, saved.id, "github", {
+    username,
+    displayName: "Safe GitHub"
+  });
+
+  return parseCsvRecords(store.exportCsv())[0];
 }
 
 test("saveSignup stores and serializes social accounts and verifications", (t) => {
@@ -311,6 +399,123 @@ test("listSignups filters normalized admin account and verification data", (t) =
   assert.match(csv, /liberdusfan/);
   assert.match(csv, /starred/);
   assert.match(csv, /has_account_changes/);
+});
+
+const FORMULA_PREFIX_CASES = [
+  { name: "equals", input: "=github", expected: "'=github" },
+  { name: "plus", input: "+github", expected: "'+github" },
+  { name: "minus", input: "-github", expected: "'-github" },
+  { name: "at sign", input: "@github", expected: "'@github" },
+  { name: "tab", input: "\tgithub", expected: "'\tgithub" },
+  { name: "carriage return", input: "\rgithub", expected: "'\rgithub" },
+  { name: "newline", input: "\ngithub", expected: "'\ngithub" }
+];
+
+for (const { name, input, expected } of FORMULA_PREFIX_CASES) {
+  test(`exportCsv neutralizes provider fields starting with ${name}`, (t) => {
+    const row = exportRowWithStoredGithubUsername(t, input);
+    assert.equal(row.github_username, expected);
+  });
+}
+
+const SAFE_CSV_VALUE_CASES = [
+  { name: "plain text", input: "liberdusfan" },
+  { name: "formula character after first byte", input: "user=1+1" },
+  { name: "leading space before formula character", input: " =1+1" },
+  { name: "empty string", input: "" }
+];
+
+for (const { name, input } of SAFE_CSV_VALUE_CASES) {
+  test(`exportCsv preserves safe provider field ${name}`, (t) => {
+    const row = exportRowWithStoredGithubUsername(t, input);
+    assert.equal(row.github_username, input);
+  });
+}
+
+test("exportCsv neutralizes all exported provider username and display name fields", (t) => {
+  const { db, store } = withTempDbStore(t);
+  const saved = store.saveSignup(makeSignupInput({
+    socialAccounts: [
+      makeSocialAccount({
+        provider: "x",
+        providerUserId: "x-1",
+        username: "xuser",
+        displayName: "X User",
+        verifications: []
+      }),
+      makeSocialAccount({
+        provider: "discord",
+        providerUserId: "discord-1",
+        username: "discord",
+        displayName: "Discord",
+        verifications: []
+      }),
+      makeSocialAccount({
+        provider: "telegram",
+        providerUserId: "telegram-1",
+        username: "telegram",
+        displayName: "Telegram",
+        verifications: []
+      }),
+      makeSocialAccount({
+        provider: "linkedin",
+        providerUserId: "linkedin-1",
+        username: "",
+        displayName: "LinkedIn",
+        verifications: []
+      }),
+      makeSocialAccount({
+        provider: "github",
+        providerUserId: "github-1",
+        username: "github",
+        displayName: "GitHub",
+        verifications: []
+      }),
+      makeSocialAccount({
+        provider: "youtube",
+        providerUserId: "youtube-1",
+        username: "youtube",
+        displayName: "YouTube",
+        verifications: []
+      })
+    ]
+  }));
+
+  const providerFields = [
+    { provider: "x", username: "=xuser", displayName: "+X, User", columns: { username: "x_username", displayName: "x_display_name" } },
+    { provider: "discord", username: "-discord", displayName: "@Discord", columns: { username: "discord_username", displayName: "discord_display_name" } },
+    { provider: "telegram", username: "\ttelegram", displayName: "\rTelegram", columns: { username: "telegram_username", displayName: "telegram_display_name" } },
+    { provider: "linkedin", username: "", displayName: "\nLinkedIn", columns: { displayName: "linkedin_display_name" } },
+    { provider: "github", username: "=github", displayName: '+Git "Hub"', columns: { username: "github_username", displayName: "github_display_name" } },
+    { provider: "youtube", username: "@youtube", displayName: "-YouTube", columns: { username: "youtube_username", displayName: "youtube_display_name" } }
+  ];
+
+  for (const field of providerFields) {
+    setStoredSocialProfileFields(db, saved.id, field.provider, field);
+  }
+
+  const csv = store.exportCsv();
+  const [row] = parseCsvRecords(csv);
+
+  for (const field of providerFields) {
+    if (field.columns.username) {
+      assert.equal(row[field.columns.username], `'${field.username}`);
+    }
+    assert.equal(row[field.columns.displayName], `'${field.displayName}`);
+  }
+  assert.match(csv, /"'\+X, User"/u);
+  assert.match(csv, /"'\+Git ""Hub"""/u);
+});
+
+test("exportCsv neutralizes formula-like non-provider fields", (t) => {
+  const store = withTempStore(t);
+  store.saveSignup(makeSignupInput({
+    id: "=signup-id"
+  }));
+
+  const [row] = parseCsvRecords(store.exportCsv());
+
+  assert.equal(row.signup_id, "'=signup-id");
 });
 
 test("CoinMarketCap opened snapshot is treated as a manual admin claim", (t) => {
