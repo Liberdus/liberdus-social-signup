@@ -1355,7 +1355,6 @@ async function loadExistingSignupForWallet() {
       showMessage("Wallet signed. Submit and sign to replace the saved wallet.");
     } else {
       runtime.existingSignup = null;
-      showMessage("No saved signup exists for this wallet yet.");
     }
     await refreshSignupSessionState();
   } finally {

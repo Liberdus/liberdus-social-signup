@@ -1155,10 +1155,12 @@ button:disabled {
 }
 
 .toast {
+  position: relative;
   width: min(360px, calc(100vw - 28px));
   display: flex;
   gap: 12px;
-  padding: 14px 16px;
+  align-items: flex-start;
+  padding: 14px 54px 14px 16px;
   border: 1px solid rgba(251, 175, 64, 0.2);
   border-radius: 16px;
   background: linear-gradient(180deg, rgba(10, 24, 70, 0.96), rgba(5, 15, 47, 0.98));
@@ -1183,7 +1185,29 @@ button:disabled {
   font-size: 0.86rem;
   line-height: 1.5;
 }
-.toast-close { min-width: 34px; width: 34px; min-height: 34px; padding: 0; }
+.toast-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  min-width: 30px;
+  max-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  color: #d8e2ff;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+  line-height: 1;
+}
+.toast-close:hover,
+.toast-close:focus-visible {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.12);
+}
 
 .table-flag {
   display: inline-flex;
