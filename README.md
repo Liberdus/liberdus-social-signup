@@ -28,6 +28,7 @@ Copy-Item .env.example .env
 ```
 
 Edit `.env` with Discord/Telegram/LinkedIn credentials, optional X/GitHub/YouTube credentials, callback URLs, and a strong `ADMIN_PASSWORD`.
+The backend also ships with in-memory throttles for admin login, signup writes, signup session reads, and provider sign-in routes. Tune the `SIGNUP_*_LIMIT` and `SIGNUP_*_WINDOW_SECONDS` values in `.env` to match your deployment, and set `SIGNUP_TRUST_PROXY=true` only behind a trusted proxy that sanitizes forwarded IP headers.
 
 Run backend:
 

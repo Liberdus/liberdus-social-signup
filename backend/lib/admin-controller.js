@@ -8,7 +8,8 @@ function createAdminController(context) {
     writeJson,
     writeText,
     readJsonRequest,
-    signupStore
+    signupStore,
+    throttles
   } = context;
 
   const sessions = new Map();
@@ -56,9 +57,11 @@ function createAdminController(context) {
       throw new HttpError(500, "ADMIN_PASSWORD is not configured.", { expose: false });
     }
     const body = await readJsonRequest(request);
+    throttles?.assertAdminLoginAllowed(request, body.username);
     if (!secureEquals(body.username, credentials.username) || !secureEquals(body.password, credentials.password)) {
       throw new HttpError(401, "Admin username or password is incorrect.");
     }
+    throttles?.resetAdminLogin(body.username);
     const token = createRandomToken();
     sessions.set(token, {
       token,

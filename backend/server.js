@@ -5,6 +5,7 @@ const dotenv = require("dotenv");
 const { createAdminController } = require("./lib/admin-controller");
 const { openDatabase, getDatabasePath } = require("./lib/db");
 const { createHttpUtils } = require("./lib/http-utils");
+const { createRequestThrottles } = require("./lib/rate-limiter");
 const { createSignupController } = require("./lib/signup-controller");
 const { createSignupStore } = require("./lib/signup-store");
 const { createSocialProviders } = require("./lib/social");
@@ -43,6 +44,7 @@ const {
   defaultFrontendReturnUrl: DEFAULT_FRONTEND_RETURN_URL,
   maxJsonBodyBytes: MAX_JSON_BODY_BYTES
 });
+const throttles = createRequestThrottles({ HttpError });
 
 let adminController;
 let socialProviders;
@@ -60,6 +62,7 @@ function pruneExpiredState() {
   socialProviders?.pruneExpired(now);
   signupController?.pruneExpired(now);
   adminController?.pruneExpired(now);
+  throttles.pruneExpired(now);
 }
 
 function getVerificationStatus(isPassed, isConfigured = true) {
@@ -104,7 +107,8 @@ adminController = createAdminController({
   writeJson,
   writeText,
   readJsonRequest,
-  signupStore
+  signupStore,
+  throttles
 });
 
 async function handleTestDiscordSession(request, response) {
@@ -159,36 +163,42 @@ const server = http.createServer(async (request, response) => {
     const socialRoute = socialProviders.getRoute(request.method, pathname);
     if (socialRoute) {
       if (socialRoute.requireOrigin) requireAllowedOrigin(request, response);
+      throttles.assertSocialFlowAllowed(request, `${request.method} ${pathname}`);
       await socialRoute.handler(request, response, requestUrl);
       return;
     }
 
     if (request.method === "POST" && pathname === "/api/signup/challenge") {
       requireAllowedOrigin(request, response);
+      throttles.assertSignupWriteAllowed(request, "challenge");
       await signupController.handleChallenge(request, response);
       return;
     }
 
     if (request.method === "POST" && pathname === "/api/signup/wallet/verify") {
       requireAllowedOrigin(request, response);
+      throttles.assertSignupWriteAllowed(request, "wallet-verify");
       await signupController.handleWalletVerify(request, response);
       return;
     }
 
     if (request.method === "GET" && pathname === "/api/signup/session") {
       requireAllowedOrigin(request, response);
+      throttles.assertSignupReadAllowed(request, "session");
       await signupController.handleSessionLookup(request, response);
       return;
     }
 
     if (request.method === "POST" && pathname === "/api/signup/session/reset") {
       requireAllowedOrigin(request, response);
+      throttles.assertSignupWriteAllowed(request, "session-reset");
       await signupController.handleSessionReset(request, response);
       return;
     }
 
     if (request.method === "POST" && pathname === "/api/signup/complete") {
       requireAllowedOrigin(request, response);
+      throttles.assertSignupWriteAllowed(request, "complete");
       await signupController.handleComplete(request, response);
       return;
     }
