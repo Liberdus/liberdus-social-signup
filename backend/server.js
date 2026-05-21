@@ -138,14 +138,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "GET" && pathname === "/health") {
       pruneExpiredState();
-      writeJson(response, 200, {
-        ok: true,
-        dbPath: getDatabasePath(),
-        stats: signupStore.getStats(),
-        allowedOrigins: getAllowedOrigins(),
-        allowedReturnUrls: getAllowedReturnUrls(),
-        ...socialProviders.getHealth()
-      });
+      writeJson(response, 200, { ok: true });
       return;
     }
 
