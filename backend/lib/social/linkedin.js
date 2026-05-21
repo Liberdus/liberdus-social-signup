@@ -223,7 +223,7 @@ function createLinkedInProvider(context) {
     writeJson(response, 200, serializeSession(session));
   }
 
-  async function handleLogout(request, response) {
+  function clearSession(request, response) {
     const sessionId = parseCookies(request)[LINKEDIN_SESSION_COOKIE_NAME];
     if (sessionId) sessions.delete(sessionId);
     clearCookie(response, LINKEDIN_SESSION_COOKIE_NAME, {
@@ -231,6 +231,15 @@ function createLinkedInProvider(context) {
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
+    clearCookie(response, LINKEDIN_INIT_COOKIE_NAME, {
+      path: "/api/linkedin/",
+      sameSite: "Lax",
+      secure: shouldUseSecureCookies()
+    });
+  }
+
+  async function handleLogout(request, response) {
+    clearSession(request, response);
     writeJson(response, 200, { ok: true });
   }
 
@@ -278,6 +287,7 @@ function createLinkedInProvider(context) {
       "POST /api/linkedin/logout": { handler: handleLogout, requireOrigin: true }
     },
     pruneExpired,
+    clearSession,
     getSessionFromCookie,
     serializeSession,
     getVerification,

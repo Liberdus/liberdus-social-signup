@@ -462,7 +462,7 @@ function createYouTubeProvider(context) {
     writeJson(response, 200, serializeSession(session));
   }
 
-  async function handleLogout(request, response) {
+  function clearSession(request, response) {
     const sessionId = parseCookies(request)[YOUTUBE_SESSION_COOKIE_NAME];
     if (sessionId) sessions.delete(sessionId);
     clearCookie(response, YOUTUBE_SESSION_COOKIE_NAME, {
@@ -470,6 +470,15 @@ function createYouTubeProvider(context) {
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
+    clearCookie(response, YOUTUBE_INIT_COOKIE_NAME, {
+      path: "/api/youtube/",
+      sameSite: "Lax",
+      secure: shouldUseSecureCookies()
+    });
+  }
+
+  async function handleLogout(request, response) {
+    clearSession(request, response);
     writeJson(response, 200, { ok: true });
   }
 
@@ -527,6 +536,7 @@ function createYouTubeProvider(context) {
       "POST /api/youtube/logout": { handler: handleLogout, requireOrigin: true }
     },
     pruneExpired,
+    clearSession,
     getSessionFromCookie,
     refreshSession,
     serializeSession,

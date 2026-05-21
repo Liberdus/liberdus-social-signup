@@ -262,7 +262,7 @@ function createDiscordProvider(context) {
     writeJson(response, 200, serializeSession(session));
   }
 
-  async function handleLogout(request, response) {
+  function clearSession(request, response) {
     const sessionId = parseCookies(request)[DISCORD_SESSION_COOKIE_NAME];
     if (sessionId) sessions.delete(sessionId);
     clearCookie(response, DISCORD_SESSION_COOKIE_NAME, {
@@ -270,6 +270,15 @@ function createDiscordProvider(context) {
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
+    clearCookie(response, DISCORD_INIT_COOKIE_NAME, {
+      path: "/api/discord/",
+      sameSite: "Lax",
+      secure: shouldUseSecureCookies()
+    });
+  }
+
+  async function handleLogout(request, response) {
+    clearSession(request, response);
     writeJson(response, 200, { ok: true });
   }
 
@@ -351,6 +360,7 @@ function createDiscordProvider(context) {
       "POST /api/discord/logout": { handler: handleLogout, requireOrigin: true }
     },
     pruneExpired,
+    clearSession,
     getSessionFromCookie,
     serializeSession,
     getVerification,

@@ -89,6 +89,7 @@ signupController = createSignupController({
   createRandomToken,
   parseCookies,
   setCookie,
+  clearCookie,
   shouldUseSecureCookies,
   writeJson,
   readJsonRequest,
@@ -177,6 +178,12 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && pathname === "/api/signup/session") {
       requireAllowedOrigin(request, response);
       await signupController.handleSessionLookup(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/signup/session/reset") {
+      requireAllowedOrigin(request, response);
+      await signupController.handleSessionReset(request, response);
       return;
     }
 

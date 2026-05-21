@@ -321,19 +321,29 @@ function createXProvider(context) {
     writeJson(response, 200, serializeSession(session));
   }
 
-  async function handleLogout(request, response) {
-    try {
-      const session = getRequiredSessionFromCookie(request);
-      requireCsrf(request, session);
-      sessions.delete(session.sessionId);
-    } catch (error) {
-      if (!(error instanceof HttpError) || error.statusCode !== 401) throw error;
-    }
+  function clearSession(request, response) {
+    const cookies = parseCookies(request);
+    const sessionId = cookies[AUTH_SESSION_COOKIE_NAME];
+    if (sessionId) sessions.delete(sessionId);
+    const pendingToken = String(cookies[AUTH_INIT_COOKIE_NAME] || "").trim();
+    if (pendingToken) requestTokens.delete(pendingToken);
+    clearCookie(response, AUTH_INIT_COOKIE_NAME, { path: "/api/x/", sameSite: "Lax", secure: shouldUseSecureCookies() });
     clearCookie(response, AUTH_SESSION_COOKIE_NAME, {
       path: "/api/",
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
+  }
+
+  async function handleLogout(request, response) {
+    try {
+      const session = getRequiredSessionFromCookie(request);
+      requireCsrf(request, session);
+      clearSession(request, response);
+    } catch (error) {
+      if (!(error instanceof HttpError) || error.statusCode !== 401) throw error;
+      clearSession(request, response);
+    }
     writeJson(response, 200, { ok: true });
   }
 
@@ -389,6 +399,7 @@ function createXProvider(context) {
       "POST /api/x/logout": { handler: handleLogout, requireOrigin: true }
     },
     pruneExpired,
+    clearSession,
     getSessionFromCookie,
     serializeSession,
     getVerification,

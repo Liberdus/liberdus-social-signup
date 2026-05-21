@@ -232,7 +232,7 @@ function createTelegramProvider(context) {
     writeJson(response, 200, serializeSession(session));
   }
 
-  async function handleLogout(request, response) {
+  function clearSession(request, response) {
     const sessionId = parseCookies(request)[TELEGRAM_SESSION_COOKIE_NAME];
     if (sessionId) sessions.delete(sessionId);
     clearCookie(response, TELEGRAM_SESSION_COOKIE_NAME, {
@@ -240,6 +240,10 @@ function createTelegramProvider(context) {
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
+  }
+
+  async function handleLogout(request, response) {
+    clearSession(request, response);
     writeJson(response, 200, { ok: true });
   }
 
@@ -286,6 +290,7 @@ function createTelegramProvider(context) {
       "POST /api/telegram/logout": { handler: handleLogout, requireOrigin: true }
     },
     pruneExpired,
+    clearSession,
     getSessionFromCookie,
     serializeSession,
     getVerification,

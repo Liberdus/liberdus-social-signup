@@ -57,6 +57,9 @@ function createSocialProviders(context) {
         provider.getSessionFromCookie?.(request) || null
       ]));
     },
+    clearSessions(request, response) {
+      providers.forEach((provider) => provider.clearSession?.(request, response));
+    },
     async refreshSessions(sessions) {
       for (const provider of providers) {
         const session = sessions[provider.id];

@@ -341,6 +341,35 @@ test("loads saved socials by signed wallet", async ({ page }) => {
   await expect(page.locator("#profileSaveNote")).toBeHidden();
 });
 
+test("disconnect wallet clears loaded signup and social sessions", async ({ page }) => {
+  const firstWallet = createTestWallet();
+  const secondWallet = createTestWallet();
+  await installFakeWallet(page, [firstWallet, secondWallet]);
+  await page.goto("./");
+  await createDiscordSession(page, { username: "disconnectsocial" });
+  await page.reload();
+  await connectWallet(page);
+  await signWallet(page);
+  await page.locator("#submitButton").click();
+  await expect(page.locator("#submitButton")).toHaveText("Update & Sign");
+  await expect(page.locator("#discordStatusRow")).toHaveAttribute("data-ready", "true");
+
+  await page.locator("#connectButton").click();
+  await page.locator("#disconnectButton").click();
+  await expect(page.locator("#requiredSocialChecklist")).toBeHidden();
+
+  await page.evaluate((nextAddress) => {
+    window.__e2eWallet.setAccount(nextAddress);
+  }, secondWallet.address);
+  await connectWallet(page);
+  await signWallet(page);
+
+  await expect(page.locator("#discordStatusRow")).toHaveAttribute("data-ready", "false");
+  await expect(page.locator("#submitButton")).toHaveText("Submit & Sign");
+  await expect(page.locator("#submitButton")).toBeDisabled();
+  await expect(page.locator("#profileGateText")).not.toContainText("Profile saved.");
+});
+
 test("confirms replacing a saved social account", async ({ page }) => {
   const wallet = createTestWallet();
   await installFakeWallet(page, wallet);

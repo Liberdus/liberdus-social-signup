@@ -336,7 +336,7 @@ function createGitHubProvider(context) {
     writeJson(response, 200, serializeSession(session));
   }
 
-  async function handleLogout(request, response) {
+  function clearSession(request, response) {
     const sessionId = parseCookies(request)[GITHUB_SESSION_COOKIE_NAME];
     if (sessionId) sessions.delete(sessionId);
     clearCookie(response, GITHUB_SESSION_COOKIE_NAME, {
@@ -344,6 +344,15 @@ function createGitHubProvider(context) {
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
+    clearCookie(response, GITHUB_INIT_COOKIE_NAME, {
+      path: "/api/github/",
+      sameSite: "Lax",
+      secure: shouldUseSecureCookies()
+    });
+  }
+
+  async function handleLogout(request, response) {
+    clearSession(request, response);
     writeJson(response, 200, { ok: true });
   }
 
@@ -394,6 +403,7 @@ function createGitHubProvider(context) {
       "POST /api/github/logout": { handler: handleLogout, requireOrigin: true }
     },
     pruneExpired,
+    clearSession,
     getSessionFromCookie,
     refreshSession,
     serializeSession,

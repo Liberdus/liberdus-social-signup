@@ -369,6 +369,30 @@ async function refreshSignupSessionState() {
   return snapshot;
 }
 
+async function resetSignupBrowserSession() {
+  await apiFetch(runtime.config, "/api/signup/session/reset", {
+    method: "POST",
+    body: "{}"
+  });
+}
+
+function clearLocalAuthState() {
+  runtime.walletProof = null;
+  runtime.existingSignup = null;
+  runtime.conflictMessage = "";
+  runtime.walletChangeIntent = false;
+  runtime.manualClaims = {};
+  runtime.coinMarketCapOpened = false;
+  runtime.xSession = null;
+  clearXSession();
+  for (const provider of checklistProviders) {
+    if (provider.sessionKey) runtime[provider.sessionKey] = null;
+    if (provider.connectingKey) runtime[provider.connectingKey] = false;
+    if (provider.trackKey) runtime[provider.trackKey] = false;
+  }
+  clearSocialAccountIssues();
+}
+
 function getConfiguredHref(link) {
   const links = runtime.config.socialLinks || {};
   return links[link.hrefKey] || links[link.fallbackHrefKey] || link.defaultHref || "#";
@@ -1500,14 +1524,11 @@ function bindEvents() {
 
   els.disconnectButton.addEventListener("click", async () => {
     try {
+      await resetSignupBrowserSession();
       await disconnectWallet(runtime);
-      runtime.walletProof = null;
-      runtime.existingSignup = null;
-      runtime.conflictMessage = "";
-      clearSocialAccountIssues();
-      runtime.walletChangeIntent = false;
+      clearLocalAuthState();
       syncUi();
-      showMessage("Wallet disconnected.");
+      showMessage("Wallet and connected accounts disconnected.");
     } catch (error) {
       reportError(error, "Disconnect wallet");
     }

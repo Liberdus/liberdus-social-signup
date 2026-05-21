@@ -41,6 +41,7 @@ function createSignupController(context) {
     createRandomToken,
     parseCookies,
     setCookie,
+    clearCookie,
     shouldUseSecureCookies,
     writeJson,
     readJsonRequest,
@@ -113,6 +114,23 @@ function createSignupController(context) {
     existing.expiresAtMs = Date.now() + SIGNUP_BROWSER_SESSION_TTL_MS;
     existing.updatedAt = new Date().toISOString();
     return existing;
+  }
+
+  function resetBrowserSession(request, response) {
+    pruneExpired();
+    const sessionId = parseCookies(request)[SIGNUP_BROWSER_COOKIE_NAME];
+    if (sessionId) {
+      browserSessions.delete(sessionId);
+      for (const [challengeId, challenge] of challenges.entries()) {
+        if (challenge.browserSessionId === sessionId) challenges.delete(challengeId);
+      }
+    }
+    clearCookie(response, SIGNUP_BROWSER_COOKIE_NAME, {
+      path: "/api/",
+      sameSite: "Lax",
+      secure: shouldUseSecureCookies()
+    });
+    socialProviders.clearSessions(request, response);
   }
 
   function requireWalletAddress(value) {
@@ -238,6 +256,11 @@ function createSignupController(context) {
       },
       existingSignup: signupStore.serializeSignup(existingSignupRow)
     });
+  }
+
+  async function handleSessionReset(request, response) {
+    resetBrowserSession(request, response);
+    writeJson(response, 200, { ok: true });
   }
 
   async function handleSessionLookup(request, response) {
@@ -685,6 +708,7 @@ function createSignupController(context) {
     handleChallenge,
     handleWalletVerify,
     handleSessionLookup,
+    handleSessionReset,
     handleComplete
   };
 }
