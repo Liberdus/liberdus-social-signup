@@ -1,0 +1,43 @@
+{
+  "apiBaseUrl": "https://att.liberdus.com/social-signup",
+  "xAuth": {
+    "enabled": true,
+    "backendUrl": "https://att.liberdus.com/social-signup",
+    "redirectUri": "https://liberdus.com/social/"
+  },
+  "telegramAuth": {
+    "enabled": true,
+    "botUsername": "",
+    "botId": "",
+    "membershipConfigured": false
+  },
+  "discordAuth": {
+    "enabled": true,
+    "membershipConfigured": false
+  },
+  "linkedinAuth": {
+    "enabled": true
+  },
+  "githubAuth": {
+    "enabled": true,
+    "targetRepo": "Liberdus/web-client-v2",
+    "targetOrg": "Liberdus"
+  },
+  "youtubeAuth": {
+    "enabled": true,
+    "targetChannelHandle": "Liberdus",
+    "targetChannelId": "",
+    "targetChannelUrl": "https://www.youtube.com/@Liberdus"
+  },
+  "socialLinks": {
+    "x": "https://x.com/liberdus",
+    "telegram": "https://t.me/LiberdusOfficial",
+    "discord": "https://liberdus.com/discord",
+    "linkedin": "https://www.linkedin.com/company/liberdus",
+    "github": "https://github.com/Liberdus",
+    "githubOrg": "https://github.com/Liberdus",
+    "githubRepo": "https://github.com/Liberdus/web-client-v2",
+    "youtube": "https://www.youtube.com/@Liberdus",
+    "coinMarketCap": "https://coinmarketcap.com/community/profile/Liberdus/"
+  }
+}

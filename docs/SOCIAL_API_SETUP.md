@@ -10,9 +10,17 @@ Pick the final public URLs before creating provider apps. Most providers require
 
 | Placeholder | Meaning | Example |
 | --- | --- | --- |
-| `<FRONTEND_ORIGIN>` | Static signup site origin | `https://liberdus.github.io` |
-| `<FRONTEND_URL>` | Full signup page URL, normally ending with `/frontend/` | `https://liberdus.github.io/liberus-social-signup/frontend/` |
-| `<BACKEND_URL>` | Public HTTPS API origin | `https://signup-api.liberdus.com` |
+| `<FRONTEND_ORIGIN>` | Static signup site origin | `https://liberdus.com` |
+| `<FRONTEND_URL>` | Full signup page URL | `https://liberdus.com/social/` |
+| `<BACKEND_URL>` | Public HTTPS API origin | `https://att.liberdus.com/social-signup` |
+
+Current Liberdus production target:
+
+```text
+<FRONTEND_ORIGIN>=https://liberdus.com
+<FRONTEND_URL>=https://liberdus.com/social/
+<BACKEND_URL>=https://att.liberdus.com/social-signup
+```
 
 Backend `.env` values that must match those URLs:
 

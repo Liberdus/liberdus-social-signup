@@ -5,11 +5,17 @@
   "private": true,
   "main": "backend/server.js",
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\"",
-    "test:unit": "node --test \"test/unit/*.test.js\"",
+    "test": "node --test test",
+    "test:unit": "node --test test/unit",
     "test:e2e": "playwright test",
     "serve": "node backend/server.js",
-    "serve:static": "node scripts/static-server.js"
+    "serve:static": "node scripts/static-server.js",
+    "package:backend": "node scripts/package-backend.js",
+    "pm2:start": "pm2 start backend/pm2.config.cjs --update-env",
+    "pm2:restart": "pm2 restart backend/pm2.config.cjs --update-env",
+    "pm2:stop": "pm2 stop backend/pm2.config.cjs",
+    "pm2:delete": "pm2 delete backend/pm2.config.cjs",
+    "pm2:status": "pm2 status"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
