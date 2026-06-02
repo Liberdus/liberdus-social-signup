@@ -23,12 +23,17 @@ module.exports = defineConfig({
     env: {
       ...process.env,
       E2E_TEST_MODE: "true",
+      SIGNUP_RATE_LIMIT_DISABLED: "true",
       SIGNUP_HOST: "127.0.0.1",
       SIGNUP_PORT: String(apiPort),
       SIGNUP_DB_PATH: path.join("data", "e2e-signup.sqlite"),
       SIGNUP_ALLOWED_ORIGINS: frontendOrigin,
       SIGNUP_FRONTEND_RETURN_URL: `${frontendOrigin}/frontend/`,
-      SIGNUP_FRONTEND_RETURN_URLS: `${frontendOrigin}/frontend/`
+      SIGNUP_FRONTEND_RETURN_URLS: `${frontendOrigin}/frontend/`,
+      DISCORD_CLIENT_ID: "e2e-discord-client",
+      DISCORD_CLIENT_SECRET: "e2e-discord-secret",
+      DISCORD_OAUTH_CALLBACK_URL: `${apiBaseUrl}/api/discord/callback`,
+      DISCORD_GUILD_ID: "e2e-discord-guild"
     }
   }, {
     command: "node scripts/static-server.js",
