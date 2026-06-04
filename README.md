@@ -23,8 +23,15 @@ Social integrations are split by provider:
 ## Local Setup
 
 ```powershell
+git submodule update --init --recursive
 npm install
 Copy-Item .env.example .env
+```
+
+Fresh clones can initialize the shared wallet module in one step:
+
+```bash
+git clone --recurse-submodules https://github.com/Liberdus/liberdus-social-signup.git
 ```
 
 Edit `.env` with Discord/Telegram/LinkedIn credentials, optional X/GitHub/YouTube credentials, callback URLs, and a strong `ADMIN_PASSWORD`.
@@ -94,6 +101,7 @@ pm2 startup
 
 Do not run `npm run serve:static` for production. That script is only a local development and E2E helper. Serve the static frontend from GitHub Pages instead.
 
-## Temporary Wallet Module
+## Wallet Module
 
-`vendor/liberdus-wallet-module` is vendored from `Liberdus/liberdus-wallet-module` branch `base_branch`. The intent is to replace this local copy with the GitHub Pages-hosted module once that distribution is ready.
+`vendor/liberdus-wallet-module` is a git submodule that points at `Liberdus/liberdus-wallet-module`.
+For existing clones, run `git submodule update --init --recursive` before starting the frontend.

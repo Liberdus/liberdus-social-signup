@@ -24,7 +24,7 @@ As of May 8, 2026, this repository contains a working local MVP:
 - `backend/lib/signup-store.js`: signup persistence and export.
 - `backend/lib/social/`: one backend provider module per social integration.
 - `frontend/js/checklist-providers/`: one frontend checklist definition per social or external action.
-- `vendor/liberdus-wallet-module`: temporary local copy from `Liberdus/liberdus-wallet-module` branch `base_branch`.
+- `vendor/liberdus-wallet-module`: git submodule pointing at `Liberdus/liberdus-wallet-module`.
 
 Implemented provider state:
 
@@ -45,7 +45,7 @@ Frontend:
 
 - Static HTML/CSS/ES modules hosted by GitHub Pages.
 - Reads `frontend/config.json` for backend URL and social links.
-- Uses the temporary vendored wallet module or shared wallet helpers until the GitHub Pages-hosted wallet module is available.
+- Uses the shared wallet module submodule for wallet discovery, sessions, and network switching helpers.
 - Calls backend APIs with credentials for social-session cookies and CSRF headers.
 - Main signup page is a checklist:
   - Wallet ownership, required.
@@ -282,13 +282,12 @@ Before public launch:
 
 Current:
 
-- Local vendored copy from `Liberdus/liberdus-wallet-module` branch `base_branch`.
+- Git submodule at `vendor/liberdus-wallet-module`, pointing at `Liberdus/liberdus-wallet-module`.
 
 Target:
 
-- Serve the wallet module from a stable GitHub Pages URL.
-- Replace local imports with the hosted module path or a small wrapper import.
-- Keep the signup app wallet integration behind one local adapter so the swap is limited to one module.
+- Keep the signup app wallet integration behind one local adapter.
+- Let the shared module own wallet discovery, session persistence, provider disconnect forwarding, revoke-on-disconnect, and EVM-only namespace filtering.
 
 ## Next Implementation Steps
 

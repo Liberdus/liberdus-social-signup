@@ -1,8 +1,8 @@
-import { createWalletCore } from "../../vendor/liberdus-wallet-module/index.js";
+import { createWalletCore } from "../../../vendor/liberdus-wallet-module/index.js";
 import {
   addEthereumChain,
   switchOrAddEthereumChain,
-} from "../../vendor/liberdus-wallet-module/adapters/chain.js";
+} from "../../../vendor/liberdus-wallet-module/adapters/chain.js";
 import { ethers } from "./ethers.js";
 import { CHAIN_NAME_BY_ID, WALLET_SESSION_KEY } from "./constants.js";
 import { normalizeAddress } from "./format.js";
