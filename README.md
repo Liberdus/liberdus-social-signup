@@ -8,7 +8,7 @@ The current MVP requires:
 - At least one connected account from X, Telegram, Discord, or LinkedIn.
 - Signup details stored in SQLite for admin review.
 
-The public page is a checklist instead of a details form. Discord, Telegram, and LinkedIn are required-choice sign-ins, X/GitHub/YouTube are optional sign-in integrations, and CoinMarketCap is an external follow link only. See [docs/SIGNUP_PLAN.md](docs/SIGNUP_PLAN.md) for the provider plan and account replacement notes.
+The public page is a checklist instead of a details form. Discord, Telegram, and LinkedIn are required-choice sign-ins, X/GitHub/YouTube are optional sign-in integrations, and CoinMarketCap is an external follow link only. See [docs/SIGNUP_PLAN.md](docs/SIGNUP_PLAN.md) for the provider plan, [docs/SOCIAL_API_SETUP.md](docs/SOCIAL_API_SETUP.md) for production provider setup, and [docs/SERVER_DEPLOYMENT.md](docs/SERVER_DEPLOYMENT.md) for the server deployment checklist.
 
 The database keeps one row per signup, plus normalized social account and verification-check rows for connected providers. Provider raw profile/check payloads are retained as JSON for audit/debug while searchable identity fields stay relational.
 

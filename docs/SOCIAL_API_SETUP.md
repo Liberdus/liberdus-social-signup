@@ -67,24 +67,37 @@ Current backend route: `<BACKEND_URL>/api/x/callback`
 Production ownership:
 
 - Use a Liberdus-controlled X developer account and X app.
-- Save the API key and API secret in the production backend secret store.
+- Save the Consumer Key and Secret Key in the production backend secret store.
 - Do not use personal access tokens for this app. The signup flow obtains user tokens through 3-legged OAuth.
 
 X developer setup:
 
 1. Create or open the production app in the X Developer Console.
-2. Enable OAuth 1.0a user authentication for the app.
-3. Add this callback URL exactly: `<BACKEND_URL>/api/x/callback`.
-4. Configure the app website/terms/privacy URLs with production Liberdus URLs if the portal requires them.
-5. Copy the app API key and API secret.
+2. Edit the app details by clicking the edit icon next to the app title.
+3. Add the Liberdus logo as the app icon.
+4. Set the app description to: `Liberdus social signup lets participants connect their X account for the Liberdus rewards signup checklist.`
+5. Open the app's Authentication settings.
+6. Under App permissions, select `Read`.
+7. Leave `Request email from users` turned off.
+8. Under Type of App, select `Web App, Automated App or Bot`.
+9. Under App info, add this callback URL exactly: `<BACKEND_URL>/api/x/callback`.
+10. Set Website URL to the production signup page, for example `<FRONTEND_URL>`.
+11. Set Organization name to `Liberdus` and Organization URL to `https://liberdus.com`.
+12. Leave Terms of Service and Privacy Policy blank unless X requires them. They are mainly required when requesting user email access, which this app does not use.
+13. Save changes.
+14. Copy the app Consumer Key and Secret Key from the Keys and tokens page. X may also show a Bearer Token, but this app does not use it for the OAuth 1.0a sign-in flow.
+
+When saving Authentication settings, X may show an OAuth 2.0 Client ID and Client Secret confirmation. This project does not use those OAuth 2.0 credentials. The backend uses OAuth 1.0a with the app Consumer Key and Secret Key instead.
 
 Backend `.env`:
 
 ```dotenv
-X_API_KEY=<production X API key>
-X_API_SECRET=<production X API secret>
+X_API_KEY=<production X Consumer Key>
+X_API_SECRET=<production X Secret Key>
 X_OAUTH1_CALLBACK_URL=<BACKEND_URL>/api/x/callback
 ```
+
+In X's developer UI, the Consumer Key is the value this app calls `X_API_KEY`, and the Secret Key is the value this app calls `X_API_SECRET`.
 
 Frontend:
 
@@ -130,6 +143,15 @@ Telegram setup:
 5. Copy the bot username and bot token.
 6. If checking group/channel membership, add the bot to the target group/channel and collect the numeric or `@username` chat ID.
 7. Set the public invite URL users should open if they are not already a member.
+
+If the deployer is not a Telegram group/channel admin:
+
+1. Create the bot through `@BotFather` and configure its name, username, image, description, and `/setdomain`.
+2. Transfer bot ownership to a Liberdus-controlled Telegram account if the bot was created from a personal account.
+3. Give the bot username and intended membership-check purpose to a Telegram admin.
+4. Ask the admin to add the bot to the target group/channel. For channels or restricted groups, the bot may need admin rights before `getChatMember` can inspect membership.
+5. Ask the admin for the target chat ID or stable `@username`, plus the public invite URL.
+6. Leave `TELEGRAM_CHAT_ID` blank if admins cannot add the bot yet. Telegram sign-in will still work, but membership status will be `unknown`.
 
 Backend `.env`:
 
@@ -182,6 +204,14 @@ Discord developer setup:
 4. Confirm the OAuth scopes used by this app: `identify guilds.members.read`.
 5. Collect the target server/guild ID.
 6. Set the public invite URL for the Liberdus Discord server.
+
+If the deployer is not a Discord server admin:
+
+1. Create the OAuth application under a Liberdus-controlled Discord account/team if possible.
+2. Give a Discord server admin the required callback URL and scopes: `identify guilds.members.read`.
+3. Ask the admin for the official server/guild ID and the public invite URL.
+4. This backend does not use a Discord bot token or bot install for the current membership check. It checks the signed-in user's membership with the user's OAuth token and `DISCORD_GUILD_ID`.
+5. Leave `DISCORD_GUILD_ID` blank if the server ID is not available yet. Discord sign-in will still work, but membership status will be `unknown`.
 
 Backend `.env`:
 
@@ -277,8 +307,9 @@ GitHub setup:
 1. Create a production OAuth app in GitHub.
 2. Set the homepage URL to the production signup or Liberdus site.
 3. Set the authorization callback URL exactly: `<BACKEND_URL>/api/github/callback`.
-4. Copy the client ID and generate/copy the client secret.
-5. Confirm the target repo and org values.
+4. Leave Device Flow disabled. This app uses the normal browser redirect flow through the backend callback URL.
+5. Copy the client ID and generate/copy the client secret.
+6. Confirm the target repo and org values.
 
 Backend `.env`:
 
@@ -337,6 +368,44 @@ Google Cloud setup:
 7. Copy the client ID and client secret.
 8. Submit for Google OAuth app verification if the app will be public and Google requires it for `youtube.readonly`.
 9. Add test users while the app is in testing mode, if needed before verification completes.
+
+If the deployer does not have access to the Liberdus Google Cloud account:
+
+1. Do not create the production OAuth client under a personal Google account.
+2. Ask a Liberdus Google Cloud or Google Workspace admin to create/select the production project and complete the setup above.
+3. Send the admin these exact values:
+
+```text
+API to enable:
+YouTube Data API v3
+
+OAuth consent screen:
+App name: Liberdus Social Signup
+Authorized domain: liberdus.com
+Scopes:
+openid
+profile
+https://www.googleapis.com/auth/youtube.readonly
+
+OAuth client:
+Application type: Web application
+Name: Liberdus Social Signup
+Authorized JavaScript origin:
+https://liberdus.com
+Authorized redirect URI:
+https://att.liberdus.com/social-signup/api/youtube/callback
+
+Return these server secrets:
+YOUTUBE_CLIENT_ID
+YOUTUBE_CLIENT_SECRET
+
+Also confirm:
+YOUTUBE_TARGET_CHANNEL_HANDLE=Liberdus
+YOUTUBE_TARGET_CHANNEL_URL=https://www.youtube.com/@Liberdus
+YOUTUBE_TARGET_CHANNEL_ID=<preferred stable channel ID if available>
+```
+
+The Liberdus Google Cloud owner may also need to complete OAuth consent screen verification because `youtube.readonly` can require Google review for public users.
 
 Backend `.env`:
 

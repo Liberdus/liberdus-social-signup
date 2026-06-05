@@ -144,7 +144,6 @@ Current approach:
 
 - Store authenticated X user ID.
 - Store a manual `x_follow_manual` claim when the user clicks the X follow link and submits. This is a claimed task only and should not be treated as verified follower data.
-- Store Liberdus target account IDs in backend config.
 - Use a background verification job to check whether each signup follows required Liberdus accounts.
 - Cache results because follow-list endpoints are paginated and rate-limited.
 
