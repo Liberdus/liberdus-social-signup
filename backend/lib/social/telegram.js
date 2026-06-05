@@ -23,6 +23,8 @@ function createTelegramProvider(context) {
     readJsonRequest,
     validateReturnUri,
     shouldUseSecureCookies,
+    getPublicPath,
+    getCookiePath,
     getPublicErrorMessage,
     getVerificationStatus
   } = context;
@@ -194,7 +196,7 @@ function createTelegramProvider(context) {
     };
     sessions.set(sessionId, session);
     setCookie(response, TELEGRAM_SESSION_COOKIE_NAME, sessionId, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       maxAge: TELEGRAM_SESSION_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
@@ -209,14 +211,14 @@ function createTelegramProvider(context) {
     const expiresAtMs = Date.now() + TELEGRAM_STATE_TTL_MS;
     callbackStates.set(state, { returnUri, expiresAtMs });
     setCookie(response, TELEGRAM_INIT_COOKIE_NAME, state, {
-      path: "/api/telegram/",
+      path: getCookiePath("/api/telegram/"),
       maxAge: TELEGRAM_STATE_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
 
-    const callbackUrl = new URL("/api/telegram/callback", requestUrl.origin);
+    const callbackUrl = new URL(getPublicPath("/api/telegram/callback"), requestUrl.origin);
     callbackUrl.searchParams.set("state", state);
     writeJson(response, 200, {
       state,
@@ -234,7 +236,7 @@ function createTelegramProvider(context) {
     const loginPayload = getLoginPayload(requestUrl.searchParams);
 
     clearCookie(response, TELEGRAM_INIT_COOKIE_NAME, {
-      path: "/api/telegram/",
+      path: getCookiePath("/api/telegram/"),
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
@@ -283,12 +285,12 @@ function createTelegramProvider(context) {
     const sessionId = parseCookies(request)[TELEGRAM_SESSION_COOKIE_NAME];
     if (sessionId) sessions.delete(sessionId);
     clearCookie(response, TELEGRAM_SESSION_COOKIE_NAME, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
     clearCookie(response, TELEGRAM_INIT_COOKIE_NAME, {
-      path: "/api/telegram/",
+      path: getCookiePath("/api/telegram/"),
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });

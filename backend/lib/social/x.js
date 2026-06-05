@@ -26,6 +26,7 @@ function createXProvider(context) {
     writeJson,
     validateReturnUri,
     shouldUseSecureCookies,
+    getCookiePath,
     getDefaultFrontendReturnUrl,
     getVerificationStatus
   } = context;
@@ -183,7 +184,7 @@ function createXProvider(context) {
 
   function setSessionCookie(response, sessionId) {
     setCookie(response, AUTH_SESSION_COOKIE_NAME, sessionId, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       maxAge: AUTH_SESSION_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
@@ -231,7 +232,7 @@ function createXProvider(context) {
       expiresAtMs: Date.now() + REQUEST_TOKEN_TTL_MS
     });
     setCookie(response, AUTH_INIT_COOKIE_NAME, result.oauth_token, {
-      path: "/api/x/",
+      path: getCookiePath("/api/x/"),
       maxAge: REQUEST_TOKEN_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
@@ -254,7 +255,7 @@ function createXProvider(context) {
     const initCookieToken = String(parseCookies(request)[AUTH_INIT_COOKIE_NAME] || "").trim();
     const hasValidInitCookie = Boolean(callbackToken && initCookieToken && secureEquals(initCookieToken, callbackToken));
 
-    clearCookie(response, AUTH_INIT_COOKIE_NAME, { path: "/api/x/", sameSite: "Lax", secure: shouldUseSecureCookies() });
+    clearCookie(response, AUTH_INIT_COOKIE_NAME, { path: getCookiePath("/api/x/"), sameSite: "Lax", secure: shouldUseSecureCookies() });
 
     if (denied && hasValidInitCookie) {
       requestTokens.delete(denied);
@@ -327,9 +328,9 @@ function createXProvider(context) {
     if (sessionId) sessions.delete(sessionId);
     const pendingToken = String(cookies[AUTH_INIT_COOKIE_NAME] || "").trim();
     if (pendingToken) requestTokens.delete(pendingToken);
-    clearCookie(response, AUTH_INIT_COOKIE_NAME, { path: "/api/x/", sameSite: "Lax", secure: shouldUseSecureCookies() });
+    clearCookie(response, AUTH_INIT_COOKIE_NAME, { path: getCookiePath("/api/x/"), sameSite: "Lax", secure: shouldUseSecureCookies() });
     clearCookie(response, AUTH_SESSION_COOKIE_NAME, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });

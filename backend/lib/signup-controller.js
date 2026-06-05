@@ -43,6 +43,7 @@ function createSignupController(context) {
     setCookie,
     clearCookie,
     shouldUseSecureCookies,
+    getCookiePath,
     writeJson,
     readJsonRequest,
     signupStore,
@@ -73,7 +74,7 @@ function createSignupController(context) {
     };
     browserSessions.set(sessionId, session);
     setCookie(response, SIGNUP_BROWSER_COOKIE_NAME, sessionId, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       maxAge: SIGNUP_BROWSER_SESSION_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
@@ -126,7 +127,7 @@ function createSignupController(context) {
       }
     }
     clearCookie(response, SIGNUP_BROWSER_COOKIE_NAME, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });

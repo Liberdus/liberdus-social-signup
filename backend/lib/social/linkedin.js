@@ -21,6 +21,7 @@ function createLinkedInProvider(context) {
     writeJson,
     validateReturnUri,
     shouldUseSecureCookies,
+    getCookiePath,
     getDefaultFrontendReturnUrl
   } = context;
 
@@ -145,7 +146,7 @@ function createLinkedInProvider(context) {
       expiresAtMs: Date.now() + LINKEDIN_OAUTH_STATE_TTL_MS
     });
     setCookie(response, LINKEDIN_INIT_COOKIE_NAME, state, {
-      path: "/api/linkedin/",
+      path: getCookiePath("/api/linkedin/"),
       maxAge: LINKEDIN_OAUTH_STATE_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
@@ -170,7 +171,7 @@ function createLinkedInProvider(context) {
     const initCookieState = String(parseCookies(request)[LINKEDIN_INIT_COOKIE_NAME] || "").trim();
     const hasValidInitCookie = Boolean(state && initCookieState && secureEquals(initCookieState, state));
 
-    clearCookie(response, LINKEDIN_INIT_COOKIE_NAME, { path: "/api/linkedin/", sameSite: "Lax", secure: shouldUseSecureCookies() });
+    clearCookie(response, LINKEDIN_INIT_COOKIE_NAME, { path: getCookiePath("/api/linkedin/"), sameSite: "Lax", secure: shouldUseSecureCookies() });
 
     if (errorDescription) {
       if (state) oauthStates.delete(state);
@@ -199,7 +200,7 @@ function createLinkedInProvider(context) {
     });
     oauthStates.delete(state);
     setCookie(response, LINKEDIN_SESSION_COOKIE_NAME, sessionId, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       maxAge: LINKEDIN_SESSION_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
@@ -227,12 +228,12 @@ function createLinkedInProvider(context) {
     const sessionId = parseCookies(request)[LINKEDIN_SESSION_COOKIE_NAME];
     if (sessionId) sessions.delete(sessionId);
     clearCookie(response, LINKEDIN_SESSION_COOKIE_NAME, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
     clearCookie(response, LINKEDIN_INIT_COOKIE_NAME, {
-      path: "/api/linkedin/",
+      path: getCookiePath("/api/linkedin/"),
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });

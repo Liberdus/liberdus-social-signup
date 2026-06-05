@@ -24,6 +24,9 @@ const {
   secureEquals,
   getAllowedOrigins,
   getDefaultFrontendReturnUrl,
+  getPublicPathPrefix,
+  getPublicPath,
+  getCookiePath,
   getAllowedReturnUrls,
   validateReturnUri,
   shouldUseSecureCookies,
@@ -82,6 +85,8 @@ socialProviders = createSocialProviders({
   readJsonRequest,
   validateReturnUri,
   shouldUseSecureCookies,
+  getPublicPath,
+  getCookiePath,
   getDefaultFrontendReturnUrl,
   getPublicErrorMessage,
   getVerificationStatus
@@ -94,6 +99,7 @@ signupController = createSignupController({
   setCookie,
   clearCookie,
   shouldUseSecureCookies,
+  getCookiePath,
   writeJson,
   readJsonRequest,
   signupStore,
@@ -231,6 +237,7 @@ server.listen(PORT, HOST, () => {
   console.log(`SQLite path: ${getDatabasePath()}`);
   console.log(`Allowed origins: ${getAllowedOrigins().join(", ")}`);
   console.log(`Allowed return URLs: ${getAllowedReturnUrls().join(", ")}`);
+  console.log(`Public path prefix: ${getPublicPathPrefix() || "/"}`);
   const socialHealth = socialProviders.getHealth();
   console.log(`X API configured: ${socialHealth.xApiConfigured ? "yes" : "no"}`);
   console.log(`X callback configured: ${socialHealth.xCallbackConfigured ? "yes" : "no"}`);

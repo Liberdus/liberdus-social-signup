@@ -62,6 +62,7 @@ function withTelegramEnv(fn) {
     SIGNUP_FRONTEND_RETURN_URL: process.env.SIGNUP_FRONTEND_RETURN_URL,
     SIGNUP_FRONTEND_RETURN_URLS: process.env.SIGNUP_FRONTEND_RETURN_URLS,
     SIGNUP_COOKIE_SECURE: process.env.SIGNUP_COOKIE_SECURE,
+    SIGNUP_PUBLIC_PATH_PREFIX: process.env.SIGNUP_PUBLIC_PATH_PREFIX,
     TELEGRAM_BOT_USERNAME: process.env.TELEGRAM_BOT_USERNAME,
     TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID
@@ -71,6 +72,7 @@ function withTelegramEnv(fn) {
   process.env.SIGNUP_FRONTEND_RETURN_URL = DEFAULT_RETURN_URL;
   process.env.SIGNUP_FRONTEND_RETURN_URLS = DEFAULT_RETURN_URL;
   process.env.SIGNUP_COOKIE_SECURE = "false";
+  delete process.env.SIGNUP_PUBLIC_PATH_PREFIX;
   process.env.TELEGRAM_BOT_USERNAME = "liberdus_test_bot";
   process.env.TELEGRAM_BOT_TOKEN = BOT_TOKEN;
   delete process.env.TELEGRAM_CHAT_ID;
@@ -123,6 +125,25 @@ test("Telegram callback rejects a valid login payload without browser-bound stat
     assert.equal(location.origin + location.pathname, DEFAULT_RETURN_URL);
     assert.equal(location.searchParams.get("telegram_error"), "Telegram sign-in expired. Try again.");
     assert.equal(getCookieValue(response, "liberdus_signup_telegram_session"), "");
+  });
+});
+
+test("Telegram init honors public path prefix for callback URL and cookies", async () => {
+  await withTelegramEnv(async () => {
+    process.env.SIGNUP_PUBLIC_PATH_PREFIX = "/social-signup";
+    const provider = createProvider();
+    const response = createMockResponse();
+    const initUrl = new URL(`http://backend.test/api/telegram/init?return_uri=${encodeURIComponent(DEFAULT_RETURN_URL)}`);
+
+    await provider.routes["POST /api/telegram/init"].handler({ headers: {} }, response, initUrl);
+
+    assert.equal(response.statusCode, 200);
+    const payload = JSON.parse(response.body);
+    assert.match(payload.authUrl, /^http:\/\/backend\.test\/social-signup\/api\/telegram\/callback\?state=/u);
+    assert.match(
+      getSetCookies(response).join("\n"),
+      /liberdus_signup_telegram_init=.*; Path=\/social-signup\/api\/telegram\//u
+    );
   });
 });
 
