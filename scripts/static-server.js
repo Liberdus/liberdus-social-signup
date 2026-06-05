@@ -4,7 +4,9 @@ const path = require("node:path");
 
 const host = process.env.STATIC_HOST || "127.0.0.1";
 const port = Number.parseInt(process.env.STATIC_PORT || "5503", 10);
-const root = path.join(__dirname, "..", "frontend");
+const repoRoot = path.join(__dirname, "..");
+const frontendRoot = path.join(repoRoot, "frontend");
+const walletModuleRoot = path.join(repoRoot, "vendor", "liberdus-wallet-module");
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -64,6 +66,17 @@ function getFilePath(urlPath) {
   }
 
   let publicPath = pathname;
+  if (publicPath === "/vendor/liberdus-wallet-module" || publicPath.startsWith("/vendor/liberdus-wallet-module/")) {
+    const modulePath = publicPath.slice("/vendor/liberdus-wallet-module".length) || "/";
+    const relative = modulePath.replace(/^\/+/u, "");
+    const resolved = path.resolve(walletModuleRoot, relative);
+    const relativeToModule = path.relative(walletModuleRoot, resolved);
+    if (relativeToModule.startsWith("..") || path.isAbsolute(relativeToModule)) return null;
+    if (relativeToModule.split(path.sep).some((segment) => segment.startsWith("."))) return null;
+    if (relativeToModule.startsWith(`test${path.sep}`) || path.extname(resolved) !== ".js") return null;
+    return resolved;
+  }
+
   if (publicPath === "/frontend") {
     publicPath = "/";
   } else if (publicPath.startsWith("/frontend/")) {
@@ -73,8 +86,8 @@ function getFilePath(urlPath) {
   const relative = publicPath === "/" || publicPath.endsWith("/")
     ? `${publicPath.replace(/^\/+/u, "")}index.html`
     : publicPath.replace(/^\/+/u, "");
-  const resolved = path.resolve(root, relative);
-  const relativeToRoot = path.relative(root, resolved);
+  const resolved = path.resolve(frontendRoot, relative);
+  const relativeToRoot = path.relative(frontendRoot, resolved);
   if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) return null;
   if (relativeToRoot.split(path.sep).some((segment) => segment.startsWith("."))) return null;
   return resolved;
@@ -90,7 +103,7 @@ http.createServer((request, response) => {
 
   fs.readFile(filePath, (error, data) => {
     if (error) {
-      if (error.code === "ENOENT" && filePath === path.join(root, "config.local.json")) {
+      if (error.code === "ENOENT" && filePath === path.join(frontendRoot, "config.local.json")) {
         if (isE2ETestMode()) {
           response.writeHead(200, {
             "Content-Type": "application/json; charset=utf-8",
