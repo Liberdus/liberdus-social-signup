@@ -69,11 +69,18 @@ test("static server serves frontend files without exposing repository files", as
   const configResponse = await fetch(`${baseUrl}/frontend/config.json`);
   assert.equal(configResponse.status, 200);
 
+  const walletModuleResponse = await fetch(`${baseUrl}/vendor/liberdus-wallet-module/index.js`);
+  assert.equal(walletModuleResponse.status, 200);
+  assert.match(await walletModuleResponse.text(), /createWalletCore/u);
+
   const blockedPaths = [
     "/package.json",
     "/backend/server.js",
     "/.env",
     "/data/liberdus-social-signup.sqlite",
+    "/vendor/liberdus-wallet-module/package.json",
+    "/vendor/liberdus-wallet-module/test/wallet-core.test.js",
+    "/vendor/liberdus-wallet-module/.gitignore",
     "/%2e%2e/package.json"
   ];
 

@@ -66,7 +66,7 @@ Backend:
 - Social backends are added through `backend/lib/social/{provider}.js` and registered in `backend/lib/social/index.js`.
 - Backend should support an anonymous browser signup session so wallet proof can happen before or after social sign-in.
 - Admin authentication uses `ADMIN_USERNAME` and `ADMIN_PASSWORD` from `.env`, returning a short-lived admin token.
-- Future production option: put the API behind a reverse proxy with TLS, rate limits, backups, and monitoring.
+- Future production option: put the API behind a reverse proxy with TLS, edge-level rate limits, backups, and monitoring.
 
 Database:
 
@@ -269,7 +269,8 @@ Later:
 
 Before public launch:
 
-- Add IP and account-level rate limits.
+- Tune the in-repo admin login, signup, and social-flow throttles for production traffic.
+- Add edge-level rate limits at the reverse proxy if the backend is publicly exposed.
 - Add captcha or turnstile if spam continues despite wallet and social account requirements.
 - Enforce production HTTPS and secure cookies.
 - Add database backup automation.
@@ -295,7 +296,7 @@ Target:
 3. Decide whether Discord/Telegram membership should be required or remain a visible secondary verification under the required account connection.
 4. Design and implement explicit account replacement with audit history.
 5. Add admin status editing and audit log.
-6. Add IP and account-level rate limits before public launch.
+6. Tune production throttle limits and reverse-proxy protections before public launch.
 7. Add database backup/restore process.
 8. Add privacy notice and retention policy.
 9. Add background X follow verification and cached verification results if X remains valuable as an optional signal.
