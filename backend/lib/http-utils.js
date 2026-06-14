@@ -32,6 +32,24 @@ function normalizeUrlString(rawValue) {
   return url.toString();
 }
 
+function normalizePublicPathPrefix(rawValue) {
+  const value = String(rawValue || "").trim();
+  if (!value || value === "/") return "";
+  const pathValue = /^https?:\/\//iu.test(value) ? new URL(value).pathname : value;
+  const withLeadingSlash = pathValue.startsWith("/") ? pathValue : `/${pathValue}`;
+  return withLeadingSlash.replace(/\/+$/u, "");
+}
+
+function normalizePathSegment(rawValue) {
+  const value = String(rawValue || "/").trim() || "/";
+  return value.startsWith("/") ? value : `/${value}`;
+}
+
+function normalizeCookiePath(rawValue) {
+  const pathValue = normalizePathSegment(rawValue);
+  return pathValue.endsWith("/") ? pathValue : `${pathValue}/`;
+}
+
 function parseCookies(request) {
   const rawCookie = String(request.headers.cookie || "");
   if (!rawCookie) return {};
@@ -120,6 +138,18 @@ function createHttpUtils({
 
   function getDefaultFrontendReturnUrl() {
     return normalizeUrlString(process.env.SIGNUP_FRONTEND_RETURN_URL || defaultFrontendReturnUrl);
+  }
+
+  function getPublicPathPrefix() {
+    return normalizePublicPathPrefix(process.env.SIGNUP_PUBLIC_PATH_PREFIX || "");
+  }
+
+  function getPublicPath(pathValue = "/") {
+    return `${getPublicPathPrefix()}${normalizePathSegment(pathValue)}` || "/";
+  }
+
+  function getCookiePath(pathValue = "/") {
+    return normalizeCookiePath(getPublicPath(pathValue));
   }
 
   function getAllowedReturnUrls() {
@@ -234,6 +264,9 @@ function createHttpUtils({
     secureEquals,
     getAllowedOrigins,
     getDefaultFrontendReturnUrl,
+    getPublicPathPrefix,
+    getPublicPath,
+    getCookiePath,
     getAllowedReturnUrls,
     validateReturnUri,
     shouldUseSecureCookies,

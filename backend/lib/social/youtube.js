@@ -25,6 +25,7 @@ function createYouTubeProvider(context) {
     writeJson,
     validateReturnUri,
     shouldUseSecureCookies,
+    getCookiePath,
     getDefaultFrontendReturnUrl,
     getVerificationStatus
   } = context;
@@ -375,7 +376,7 @@ function createYouTubeProvider(context) {
       expiresAtMs: Date.now() + YOUTUBE_OAUTH_STATE_TTL_MS
     });
     setCookie(response, YOUTUBE_INIT_COOKIE_NAME, state, {
-      path: "/api/youtube/",
+      path: getCookiePath("/api/youtube/"),
       maxAge: YOUTUBE_OAUTH_STATE_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
@@ -403,7 +404,7 @@ function createYouTubeProvider(context) {
     const initCookieState = String(parseCookies(request)[YOUTUBE_INIT_COOKIE_NAME] || "").trim();
     const hasValidInitCookie = Boolean(state && initCookieState && secureEquals(initCookieState, state));
 
-    clearCookie(response, YOUTUBE_INIT_COOKIE_NAME, { path: "/api/youtube/", sameSite: "Lax", secure: shouldUseSecureCookies() });
+    clearCookie(response, YOUTUBE_INIT_COOKIE_NAME, { path: getCookiePath("/api/youtube/"), sameSite: "Lax", secure: shouldUseSecureCookies() });
 
     if (errorDescription) {
       if (state) oauthStates.delete(state);
@@ -437,7 +438,7 @@ function createYouTubeProvider(context) {
     sessions.set(sessionId, session);
     oauthStates.delete(state);
     setCookie(response, YOUTUBE_SESSION_COOKIE_NAME, sessionId, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       maxAge: YOUTUBE_SESSION_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
@@ -466,12 +467,12 @@ function createYouTubeProvider(context) {
     const sessionId = parseCookies(request)[YOUTUBE_SESSION_COOKIE_NAME];
     if (sessionId) sessions.delete(sessionId);
     clearCookie(response, YOUTUBE_SESSION_COOKIE_NAME, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
     clearCookie(response, YOUTUBE_INIT_COOKIE_NAME, {
-      path: "/api/youtube/",
+      path: getCookiePath("/api/youtube/"),
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });

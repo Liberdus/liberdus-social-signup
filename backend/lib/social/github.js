@@ -22,6 +22,7 @@ function createGitHubProvider(context) {
     writeJson,
     validateReturnUri,
     shouldUseSecureCookies,
+    getCookiePath,
     getDefaultFrontendReturnUrl,
     getVerificationStatus
   } = context;
@@ -252,7 +253,7 @@ function createGitHubProvider(context) {
       expiresAtMs: Date.now() + GITHUB_OAUTH_STATE_TTL_MS
     });
     setCookie(response, GITHUB_INIT_COOKIE_NAME, state, {
-      path: "/api/github/",
+      path: getCookiePath("/api/github/"),
       maxAge: GITHUB_OAUTH_STATE_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
@@ -278,7 +279,7 @@ function createGitHubProvider(context) {
     const initCookieState = String(parseCookies(request)[GITHUB_INIT_COOKIE_NAME] || "").trim();
     const hasValidInitCookie = Boolean(state && initCookieState && secureEquals(initCookieState, state));
 
-    clearCookie(response, GITHUB_INIT_COOKIE_NAME, { path: "/api/github/", sameSite: "Lax", secure: shouldUseSecureCookies() });
+    clearCookie(response, GITHUB_INIT_COOKIE_NAME, { path: getCookiePath("/api/github/"), sameSite: "Lax", secure: shouldUseSecureCookies() });
 
     if (errorDescription) {
       if (state) oauthStates.delete(state);
@@ -311,7 +312,7 @@ function createGitHubProvider(context) {
     sessions.set(sessionId, session);
     oauthStates.delete(state);
     setCookie(response, GITHUB_SESSION_COOKIE_NAME, sessionId, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       maxAge: GITHUB_SESSION_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
@@ -340,12 +341,12 @@ function createGitHubProvider(context) {
     const sessionId = parseCookies(request)[GITHUB_SESSION_COOKIE_NAME];
     if (sessionId) sessions.delete(sessionId);
     clearCookie(response, GITHUB_SESSION_COOKIE_NAME, {
-      path: "/api/",
+      path: getCookiePath("/api/"),
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });
     clearCookie(response, GITHUB_INIT_COOKIE_NAME, {
-      path: "/api/github/",
+      path: getCookiePath("/api/github/"),
       sameSite: "Lax",
       secure: shouldUseSecureCookies()
     });

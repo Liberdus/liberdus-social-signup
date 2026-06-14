@@ -36,10 +36,12 @@ SIGNUP_ALLOWED_ORIGINS=https://liberdus.com
 SIGNUP_FRONTEND_RETURN_URL=https://liberdus.com/social/
 SIGNUP_FRONTEND_RETURN_URLS=https://liberdus.com/social/
 SIGNUP_COOKIE_SECURE=true
+SIGNUP_PUBLIC_PATH_PREFIX=/social-signup
 SIGNUP_TRUST_PROXY=true
 ```
 
 Set `SIGNUP_TRUST_PROXY=true` only behind a trusted reverse proxy that sanitizes forwarded IP headers.
+Set `SIGNUP_PUBLIC_PATH_PREFIX=/social-signup` because the public backend API is served from `https://att.liberdus.com/social-signup/api/...`; this scopes signup and provider cookies to the same public path the browser calls.
 
 ## Provider Callback URLs
 

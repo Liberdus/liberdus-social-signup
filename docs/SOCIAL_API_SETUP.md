@@ -29,9 +29,10 @@ SIGNUP_ALLOWED_ORIGINS=<FRONTEND_ORIGIN>
 SIGNUP_FRONTEND_RETURN_URL=<FRONTEND_URL>
 SIGNUP_FRONTEND_RETURN_URLS=<FRONTEND_URL>
 SIGNUP_COOKIE_SECURE=true
+SIGNUP_PUBLIC_PATH_PREFIX=/social-signup
 ```
 
-If the backend runs behind nginx, Caddy, Cloudflare, or another trusted proxy, keep `SIGNUP_HOST=127.0.0.1`, set `SIGNUP_PORT` to the internal API port, and set `SIGNUP_TRUST_PROXY=true` only if that proxy sanitizes `X-Forwarded-For` / `X-Real-IP`.
+If the backend runs behind nginx, Caddy, Cloudflare, or another trusted proxy, keep `SIGNUP_HOST=127.0.0.1`, set `SIGNUP_PORT` to the internal API port, and set `SIGNUP_TRUST_PROXY=true` only if that proxy sanitizes `X-Forwarded-For` / `X-Real-IP`. Keep `SIGNUP_PUBLIC_PATH_PREFIX=/social-signup` when the public backend URL is `https://att.liberdus.com/social-signup`; it makes browser cookies match the public `/social-signup/api/...` routes.
 
 Frontend `frontend/config.json` should point at the production backend and public social links:
 
